@@ -7,357 +7,335 @@
         on:click={() => bcast.emit('rqstOpen', 'menu')}
     >
         {title}
-        <div class="plugin__title__subtitle">
-            Air density visualization layer
-        </div>
     </div>
 
-    <!-- Status Panel -->
-    <div class="status-panel rounded-box mb-15">
-        <div class="status-row">
-            <span class="label">Status:</span>
-            <span class="value" class:loading={isLoading}>
-                {#if isLoading}
-                    Loading... {loadingProgress}%
-                {:else if error}
-                    Error
-                {:else if dataPoints > 0}
-                    Active ({dataPoints} points)
-                {:else}
-                    Ready
-                {/if}
-            </span>
-        </div>
-        <div class="status-row">
-            <span class="label">Level:</span>
-            <span class="value">{currentLevel}</span>
-        </div>
-        <div class="status-row">
+    <p class="intro-text">
+        Click anywhere on the map to calculate air density at that location.
+        Air density is calculated from temperature, pressure, and humidity.
+    </p>
+
+    <!-- Current Settings -->
+    <div class="settings-panel rounded-box mb-15">
+        <div class="setting-row">
             <span class="label">Model:</span>
             <span class="value">{currentModel}</span>
         </div>
-    </div>
-
-    <!-- Controls -->
-    <div class="controls-section mb-15">
-        <div class="control-row">
-            <label for="opacity-slider">Layer Opacity:</label>
-            <input
-                id="opacity-slider"
-                type="range"
-                min="0.1"
-                max="1"
-                step="0.05"
-                bind:value={layerOpacity}
-                on:change={updateLayerOpacity}
-            />
-            <span class="value">{Math.round(layerOpacity * 100)}%</span>
-        </div>
-        
-        <div class="control-row">
-            <label for="color-scale">Color Scale:</label>
-            <select id="color-scale" bind:value={colorScale} on:change={updateColorScale}>
-                <option value="density">Density Optimized</option>
-                <option value="viridis">Viridis</option>
-                <option value="thermal">Thermal</option>
-            </select>
+        <div class="setting-row">
+            <span class="label">Level:</span>
+            <span class="value">{currentLevel}</span>
         </div>
     </div>
 
-    <!-- Action Buttons -->
-    <div class="buttons-row mb-15">
-        <button
-            class="button button--variant-orange"
-            on:click={loadDensityData}
-            disabled={isLoading}
-        >
-            {isLoading ? 'Loading...' : 'Load Density Data'}
-        </button>
-        <button
-            class="button"
-            on:click={clearLayer}
-            disabled={isLoading || dataPoints === 0}
-        >
-            Clear Layer
-        </button>
-    </div>
-
-    <!-- Legend -->
-    <div class="legend-section mb-15">
-        <div class="legend-title">Air Density (kg/m³)</div>
-        <div class="legend-bar">
-            <canvas bind:this={legendCanvas} width="300" height="20"></canvas>
-        </div>
-        <div class="legend-labels">
-            <span>{DENSITY_RANGE.min.toFixed(2)}</span>
-            <span>{DENSITY_RANGE.standard.toFixed(3)} (std)</span>
-            <span>{DENSITY_RANGE.max.toFixed(2)}</span>
-        </div>
-    </div>
-
-    <!-- Current Point Info -->
-    {#if selectedPoint}
-        <div class="point-info rounded-box mb-15">
-            <div class="point-info-title">Selected Location</div>
-            <div class="info-row">
-                <span class="label">Position:</span>
-                <span class="value">{selectedPoint.lat.toFixed(3)}°, {selectedPoint.lon.toFixed(3)}°</span>
-            </div>
-            <div class="info-row">
-                <span class="label">Temperature:</span>
-                <span class="value">{selectedPoint.temp.toFixed(1)}°C</span>
-            </div>
-            <div class="info-row">
-                <span class="label">Pressure:</span>
-                <span class="value">{selectedPoint.pressure.toFixed(1)} hPa</span>
-            </div>
-            <div class="info-row">
-                <span class="label">Humidity:</span>
-                <span class="value">{selectedPoint.humidity.toFixed(0)}%</span>
-            </div>
-            <div class="info-row highlight">
-                <span class="label">Air Density:</span>
-                <span class="value">{selectedPoint.density?.toFixed(4)} kg/m³</span>
-            </div>
+    <!-- Loading State -->
+    {#if isLoading}
+        <div class="loading-panel rounded-box mb-15">
+            <div class="spinner"></div>
+            <span>Loading weather data...</span>
         </div>
     {/if}
 
-    <!-- Help Text -->
-    <div class="help-text rounded-box bg-secondary">
-        <p>
-            <strong>How it works:</strong> This plugin calculates air density using 
-            temperature, pressure, and humidity data from weather models.
-        </p>
-        <p>
-            Click "Load Density Data" to fetch data for the current map view. 
-            The layer will display a colored grid showing air density variations.
-        </p>
-        <p>
-            <strong>Tip:</strong> Change the pressure level in Windy's main UI 
-            to see air density at different altitudes.
-        </p>
-    </div>
-
+    <!-- Error State -->
     {#if error}
-        <div class="error-box mt-15">
+        <div class="error-box mb-15">
             <strong>Error:</strong> {error}
         </div>
     {/if}
+
+    <!-- Results -->
+    {#if result && !isLoading}
+        <div class="result-panel rounded-box mb-15">
+            <div class="result-header">
+                <span class="location-name">{locationName || 'Selected Location'}</span>
+                <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
+            </div>
+            
+            <div class="result-grid">
+                <div class="result-item">
+                    <span class="result-label">Temperature</span>
+                    <span class="result-value">{result.temp.toFixed(1)}°C</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Pressure</span>
+                    <span class="result-value">{result.pressure.toFixed(1)} hPa</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Humidity</span>
+                    <span class="result-value">{result.humidity.toFixed(0)}%</span>
+                </div>
+            </div>
+
+            <div class="density-result">
+                <span class="density-label">Air Density</span>
+                <span class="density-value">{result.density.toFixed(4)}</span>
+                <span class="density-unit">kg/m³</span>
+            </div>
+
+            <div class="density-context">
+                {#if result.density < 1.1}
+                    <span class="context-tag low">Low density (warm/humid/high altitude)</span>
+                {:else if result.density > 1.3}
+                    <span class="context-tag high">High density (cold/dry/low altitude)</span>
+                {:else}
+                    <span class="context-tag normal">Near standard density (~1.225 kg/m³)</span>
+                {/if}
+            </div>
+        </div>
+
+        <!-- Comparison -->
+        <div class="comparison-panel rounded-box mb-15">
+            <div class="comparison-title">Comparison to Standard</div>
+            <div class="comparison-bar">
+                <div class="bar-track">
+                    <div class="bar-marker standard" style="left: {standardPosition}%">
+                        <span class="marker-label">Std</span>
+                    </div>
+                    <div class="bar-marker current" style="left: {currentPosition}%">
+                        <span class="marker-label">Now</span>
+                    </div>
+                </div>
+                <div class="bar-labels">
+                    <span>0.9</span>
+                    <span>1.225</span>
+                    <span>1.5</span>
+                </div>
+            </div>
+            <div class="comparison-diff">
+                {#if result.density !== DENSITY_STANDARD}
+                    {((result.density - DENSITY_STANDARD) / DENSITY_STANDARD * 100).toFixed(1)}% 
+                    {result.density > DENSITY_STANDARD ? 'above' : 'below'} standard
+                {:else}
+                    At standard density
+                {/if}
+            </div>
+        </div>
+    {/if}
+
+    <!-- No Result Yet -->
+    {#if !result && !isLoading && !error}
+        <div class="empty-state rounded-box">
+            <div class="empty-icon">📍</div>
+            <div class="empty-text">Click on the map to calculate air density</div>
+        </div>
+    {/if}
+
+    <!-- Info Section -->
+    <div class="info-section rounded-box bg-secondary">
+        <details>
+            <summary>About Air Density</summary>
+            <p>
+                Air density (ρ) is the mass per unit volume of Earth's atmosphere, 
+                typically measured in kg/m³. It varies with:
+            </p>
+            <ul>
+                <li><strong>Temperature:</strong> Warmer air is less dense</li>
+                <li><strong>Pressure:</strong> Higher pressure means higher density</li>
+                <li><strong>Humidity:</strong> Moist air is slightly less dense than dry air</li>
+                <li><strong>Altitude:</strong> Density decreases with elevation</li>
+            </ul>
+            <p>
+                Standard sea-level density is approximately <strong>1.225 kg/m³</strong> 
+                at 15°C and 1013.25 hPa.
+            </p>
+        </details>
+    </div>
 </section>
 
 <script lang="ts">
     import bcast from '@windy/broadcast';
-    import { map } from '@windy/map';
+    import { map, markers } from '@windy/map';
     import store from '@windy/store';
     import { singleclick } from '@windy/singleclick';
+    import { getPointForecastData } from '@windy/fetch';
+    import * as reverseName from '@windy/reverseName';
     import { onDestroy, onMount } from 'svelte';
 
     import config from './pluginConfig';
-    import { DENSITY_RANGE, formatDensity, calculateAirDensity } from './airDensity';
-    import { createDensityLayer, type DensityDataPoint } from './DensityLayer';
-    import { fetchGridData, fetchPointData, subscribeToStoreChanges, clearCache } from './dataFetcher';
-    import { createLegendGradient, type ColorScaleType } from './colorScale';
+    import { calculateAirDensity } from './airDensity';
 
-    import type { LatLon } from '@windy/interfaces.d';
+    import type { LatLon, WeatherDataPayload, DataHash } from '@windy/interfaces.d';
+    import type { HttpPayload } from '@windy/http.d';
 
     const { title, name } = config;
+    const DENSITY_STANDARD = 1.225;
+    const DENSITY_MIN = 0.9;
+    const DENSITY_MAX = 1.5;
+
+    interface DensityResult {
+        lat: number;
+        lon: number;
+        temp: number;
+        pressure: number;
+        humidity: number;
+        density: number;
+    }
 
     // State
     let isLoading = false;
-    let loadingProgress = 0;
     let error: string | null = null;
-    let dataPoints = 0;
-    let selectedPoint: DensityDataPoint | null = null;
-    let layerOpacity = 0.65;
-    let colorScale: ColorScaleType = 'density';
-    let currentLevel = 'surface';
+    let result: DensityResult | null = null;
+    let locationName: string | null = null;
     let currentModel = 'ecmwf';
-    
-    // Canvas ref for legend
-    let legendCanvas: HTMLCanvasElement;
-    
-    // Layer instance
-    let densityLayer: ReturnType<typeof createDensityLayer> | null = null;
-    
-    // Store subscription cleanup
-    let unsubscribeStore: (() => void) | null = null;
+    let currentLevel = 'surface';
+    let marker: L.Marker | null = null;
+
+    // Computed positions for comparison bar
+    $: standardPosition = ((DENSITY_STANDARD - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100;
+    $: currentPosition = result 
+        ? Math.max(0, Math.min(100, ((result.density - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100))
+        : 50;
 
     /**
-     * Initialize the density layer
-     */
-    function initLayer() {
-        if (densityLayer) {
-            return;
-        }
-        
-        densityLayer = createDensityLayer({
-            opacity: layerOpacity,
-            colorScale: colorScale,
-            cellSize: 40
-        });
-        
-        densityLayer.addTo(map);
-    }
-
-    /**
-     * Remove the density layer
-     */
-    function removeLayer() {
-        if (densityLayer) {
-            map.removeLayer(densityLayer);
-            densityLayer = null;
-        }
-    }
-
-    /**
-     * Load density data for current map view
-     */
-    async function loadDensityData() {
-        if (isLoading) {
-            return;
-        }
-        
-        isLoading = true;
-        loadingProgress = 0;
-        error = null;
-        
-        try {
-            initLayer();
-            
-            const bounds = map.getBounds();
-            
-            const data = await fetchGridData(
-                bounds,
-                name,
-                (progress) => {
-                    loadingProgress = progress;
-                }
-            );
-            
-            if (data.length === 0) {
-                error = 'No data available for this area';
-            } else if (densityLayer) {
-                densityLayer.setDensityData(data);
-                dataPoints = data.length;
-            }
-        } catch (err) {
-            error = err instanceof Error ? err.message : 'Unknown error occurred';
-            console.error('Error loading density data:', err);
-        } finally {
-            isLoading = false;
-            loadingProgress = 100;
-        }
-    }
-
-    /**
-     * Clear the layer data
-     */
-    function clearLayer() {
-        if (densityLayer) {
-            densityLayer.clearData();
-        }
-        dataPoints = 0;
-        selectedPoint = null;
-        clearCache();
-    }
-
-    /**
-     * Update layer opacity
-     */
-    function updateLayerOpacity() {
-        if (densityLayer) {
-            densityLayer.setOpacity(layerOpacity);
-        }
-    }
-
-    /**
-     * Update color scale
-     */
-    function updateColorScale() {
-        if (densityLayer) {
-            densityLayer.setColorScale(colorScale);
-        }
-        renderLegend();
-    }
-
-    /**
-     * Render the legend canvas
-     */
-    function renderLegend() {
-        if (!legendCanvas) {
-            return;
-        }
-        
-        const ctx = legendCanvas.getContext('2d');
-        if (!ctx) {
-            return;
-        }
-        
-        const width = legendCanvas.width;
-        const height = legendCanvas.height;
-        
-        // Clear
-        ctx.clearRect(0, 0, width, height);
-        
-        // Draw gradient
-        const gradient = createLegendGradient(ctx, 0, 0, width, height, colorScale, true);
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, width, height);
-        
-        // Add border
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(0, 0, width, height);
-    }
-
-    /**
-     * Handle map click to show point info
-     */
-    async function handleMapClick(latLon: LatLon) {
-        if (isLoading) {
-            return;
-        }
-        
-        try {
-            const data = await fetchPointData(latLon, name);
-            if (data) {
-                selectedPoint = data;
-            }
-        } catch (err) {
-            console.error('Error fetching point data:', err);
-        }
-    }
-
-    /**
-     * Update current level and model from store
+     * Update store values
      */
     function updateStoreValues() {
-        const level = store.get('level');
-        currentLevel = level || 'surface';
-        
-        const product = store.get('product');
-        currentModel = product || 'ecmwf';
+        currentModel = store.get('product') || 'ecmwf';
+        currentLevel = store.get('level') || 'surface';
     }
 
     /**
-     * Handle store changes
+     * Place or update the marker on the map
      */
-    function handleStoreChange() {
-        updateStoreValues();
+    function updateMarker(lat: number, lon: number) {
+        if (marker) {
+            marker.setLatLng([lat, lon]);
+        } else {
+            marker = L.marker([lat, lon], { 
+                icon: markers.pulsatingIcon 
+            }).addTo(map);
+        }
+    }
+
+    /**
+     * Remove the marker from the map
+     */
+    function removeMarker() {
+        if (marker) {
+            marker.remove();
+            marker = null;
+        }
+    }
+
+    /**
+     * Handle click on the map
+     */
+    async function handleMapClick(latLon: LatLon) {
+        const { lat, lon } = latLon;
         
-        // If we have data loaded, refresh it
-        if (dataPoints > 0 && !isLoading) {
-            loadDensityData();
+        isLoading = true;
+        error = null;
+        locationName = null;
+        
+        // Update marker position
+        updateMarker(lat, lon);
+        
+        // Get location name
+        reverseName.get(latLon).then(({ name: locName }) => {
+            locationName = locName;
+        }).catch(() => {
+            // Ignore reverse geocoding errors
+        });
+
+        try {
+            const model = store.get('product') || 'ecmwf';
+            
+            const response: HttpPayload<WeatherDataPayload<DataHash>> = await getPointForecastData(
+                model,
+                latLon,
+                name
+            );
+            
+            if (!response.data || !response.data.data) {
+                throw new Error('No forecast data available');
+            }
+
+            const weatherData = response.data.data;
+            const currentTs = store.get('timestamp') || Date.now();
+            
+            // Find the closest timestamp index
+            const timestamps = weatherData.ts || [];
+            let timeIndex = 0;
+            let minDiff = Infinity;
+            
+            for (let i = 0; i < timestamps.length; i++) {
+                const diff = Math.abs(timestamps[i] - currentTs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    timeIndex = i;
+                }
+            }
+
+            // Extract weather parameters
+            // Temperature: try temp-surface, temp, or gh (geopotential height based)
+            let tempValue = weatherData['temp-surface']?.[timeIndex] 
+                ?? weatherData.temp?.[timeIndex];
+            
+            // Pressure: try pressure or sea level pressure
+            let pressureValue = weatherData.pressure?.[timeIndex] 
+                ?? weatherData['sea_level_pressure']?.[timeIndex]
+                ?? weatherData.slp?.[timeIndex];
+            
+            // Humidity: try rh-surface, rh, or default
+            let humidityValue = weatherData['rh-surface']?.[timeIndex] 
+                ?? weatherData.rh?.[timeIndex];
+
+            // Debug: log what we got
+            console.log('Weather data keys:', Object.keys(weatherData));
+            console.log('Raw values:', { tempValue, pressureValue, humidityValue });
+
+            if (tempValue === undefined) {
+                throw new Error('Temperature data not available');
+            }
+            
+            if (pressureValue === undefined) {
+                throw new Error('Pressure data not available');
+            }
+
+            // Convert temperature from Kelvin to Celsius if needed
+            let tempCelsius = tempValue;
+            if (tempValue > 200) {
+                // Likely Kelvin
+                tempCelsius = tempValue - 273.15;
+            }
+
+            // Convert pressure to hPa if needed
+            let pressureHPa = pressureValue;
+            if (pressureValue > 10000) {
+                // Likely in Pa
+                pressureHPa = pressureValue / 100;
+            }
+
+            // Use default humidity if not available
+            const humidity = humidityValue ?? 50;
+
+            // Calculate air density
+            const density = calculateAirDensity(tempCelsius, pressureHPa, humidity);
+
+            result = {
+                lat,
+                lon,
+                temp: tempCelsius,
+                pressure: pressureHPa,
+                humidity,
+                density
+            };
+
+        } catch (err) {
+            console.error('Error calculating air density:', err);
+            error = err instanceof Error ? err.message : 'Failed to fetch weather data';
+            result = null;
+        } finally {
+            isLoading = false;
         }
     }
 
     // Plugin lifecycle
-    export const onopen = () => {
+    export const onopen = (params?: LatLon) => {
         updateStoreValues();
-        initLayer();
         
-        // Render legend after mount
-        setTimeout(renderLegend, 100);
+        // If opened with coordinates (e.g., from context menu), calculate immediately
+        if (params && params.lat !== undefined && params.lon !== undefined) {
+            handleMapClick(params);
+        }
     };
 
     onMount(() => {
@@ -365,236 +343,310 @@
         singleclick.on(name, handleMapClick);
         
         // Subscribe to store changes
-        unsubscribeStore = subscribeToStoreChanges(handleStoreChange);
+        store.on('product', updateStoreValues);
+        store.on('level', updateStoreValues);
         
-        // Initial store values
         updateStoreValues();
-        
-        // Render legend
-        setTimeout(renderLegend, 100);
     });
 
     onDestroy(() => {
-        // Cleanup
         singleclick.off(name, handleMapClick);
-        
-        if (unsubscribeStore) {
-            unsubscribeStore();
-        }
-        
-        removeLayer();
-        clearCache();
+        store.off('product', updateStoreValues);
+        store.off('level', updateStoreValues);
+        removeMarker();
     });
 </script>
 
 <style lang="less">
     .density-plugin {
-        .status-panel {
+        .intro-text {
+            margin: 0 0 15px 0;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+
+        .settings-panel {
             background: rgba(0, 0, 0, 0.2);
             padding: 10px 15px;
+            display: flex;
+            gap: 20px;
             
-            .status-row {
+            .setting-row {
                 display: flex;
-                justify-content: space-between;
-                margin-bottom: 5px;
-                
-                &:last-child {
-                    margin-bottom: 0;
-                }
+                gap: 8px;
                 
                 .label {
-                    color: rgba(255, 255, 255, 0.7);
+                    color: rgba(255, 255, 255, 0.6);
                 }
                 
                 .value {
                     font-weight: 500;
-                    
-                    &.loading {
-                        color: #ffa500;
-                    }
                 }
             }
         }
-        
-        .controls-section {
-            .control-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                margin-bottom: 10px;
-                
-                label {
-                    min-width: 100px;
-                    color: rgba(255, 255, 255, 0.8);
-                }
-                
-                input[type="range"] {
-                    flex: 1;
-                    height: 6px;
-                    appearance: none;
-                    background: rgba(255, 255, 255, 0.2);
-                    border-radius: 3px;
-                    
-                    &::-webkit-slider-thumb {
-                        appearance: none;
-                        width: 16px;
-                        height: 16px;
-                        background: #ff6600;
-                        border-radius: 50%;
-                        cursor: pointer;
-                    }
-                }
-                
-                select {
-                    flex: 1;
-                    padding: 5px 10px;
-                    background: rgba(0, 0, 0, 0.3);
-                    border: 1px solid rgba(255, 255, 255, 0.2);
-                    color: white;
-                    border-radius: 4px;
-                    
-                    option {
-                        background: #333;
-                    }
-                }
-                
-                .value {
-                    min-width: 40px;
-                    text-align: right;
-                }
-            }
-        }
-        
-        .buttons-row {
+
+        .loading-panel {
+            background: rgba(255, 165, 0, 0.15);
+            padding: 20px;
             display: flex;
-            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
             
-            .button {
-                flex: 1;
-                padding: 10px 15px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-weight: 500;
-                transition: opacity 0.2s;
-                
-                &:disabled {
-                    opacity: 0.5;
-                    cursor: not-allowed;
-                }
-                
-                &--variant-orange {
-                    background: #ff6600;
-                    color: white;
-                }
-                
-                &:not(.button--variant-orange) {
-                    background: rgba(255, 255, 255, 0.15);
-                    color: white;
-                }
+            .spinner {
+                width: 20px;
+                height: 20px;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+                border-top-color: #ff6600;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
             }
         }
-        
-        .legend-section {
-            .legend-title {
-                font-weight: 500;
-                margin-bottom: 8px;
-                text-align: center;
-            }
-            
-            .legend-bar {
-                border-radius: 4px;
-                overflow: hidden;
-                
-                canvas {
-                    display: block;
-                    width: 100%;
-                    height: 20px;
-                }
-            }
-            
-            .legend-labels {
-                display: flex;
-                justify-content: space-between;
-                margin-top: 5px;
-                font-size: 11px;
-                color: rgba(255, 255, 255, 0.7);
-            }
-        }
-        
-        .point-info {
-            background: rgba(0, 0, 0, 0.3);
+
+        .error-box {
+            background: rgba(255, 0, 0, 0.15);
+            border: 1px solid rgba(255, 0, 0, 0.3);
             padding: 12px 15px;
+            border-radius: 6px;
+            color: #ff6b6b;
+        }
+
+        .result-panel {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 15px;
             
-            .point-info-title {
-                font-weight: 600;
-                margin-bottom: 10px;
-                color: #ff6600;
-            }
-            
-            .info-row {
+            .result-header {
                 display: flex;
                 justify-content: space-between;
-                margin-bottom: 5px;
+                align-items: baseline;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 
-                &.highlight {
-                    margin-top: 8px;
-                    padding-top: 8px;
-                    border-top: 1px solid rgba(255, 255, 255, 0.1);
+                .location-name {
+                    font-weight: 600;
+                    font-size: 16px;
+                }
+                
+                .coordinates {
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.6);
+                }
+            }
+            
+            .result-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin-bottom: 15px;
+                
+                .result-item {
+                    text-align: center;
+                    padding: 10px;
+                    background: rgba(0, 0, 0, 0.2);
+                    border-radius: 6px;
                     
-                    .label, .value {
+                    .result-label {
+                        display: block;
+                        font-size: 11px;
+                        color: rgba(255, 255, 255, 0.6);
+                        margin-bottom: 4px;
+                    }
+                    
+                    .result-value {
+                        display: block;
+                        font-size: 16px;
                         font-weight: 600;
-                        color: #4CAF50;
                     }
                 }
+            }
+            
+            .density-result {
+                text-align: center;
+                padding: 15px;
+                background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
+                border-radius: 8px;
+                margin-bottom: 10px;
                 
-                .label {
+                .density-label {
+                    display: block;
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.7);
+                    margin-bottom: 5px;
+                }
+                
+                .density-value {
+                    display: block;
+                    font-size: 32px;
+                    font-weight: 700;
+                    color: #4CAF50;
+                }
+                
+                .density-unit {
+                    font-size: 14px;
                     color: rgba(255, 255, 255, 0.7);
                 }
             }
-        }
-        
-        .help-text {
-            padding: 12px 15px;
-            font-size: 13px;
-            line-height: 1.5;
             
-            p {
-                margin: 0 0 10px 0;
+            .density-context {
+                text-align: center;
                 
-                &:last-child {
-                    margin-bottom: 0;
+                .context-tag {
+                    display: inline-block;
+                    padding: 4px 12px;
+                    border-radius: 12px;
+                    font-size: 12px;
+                    
+                    &.low {
+                        background: rgba(255, 152, 0, 0.2);
+                        color: #ffb74d;
+                    }
+                    
+                    &.high {
+                        background: rgba(33, 150, 243, 0.2);
+                        color: #64b5f6;
+                    }
+                    
+                    &.normal {
+                        background: rgba(76, 175, 80, 0.2);
+                        color: #81c784;
+                    }
+                }
+            }
+        }
+
+        .comparison-panel {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 15px;
+            
+            .comparison-title {
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.7);
+                margin-bottom: 12px;
+            }
+            
+            .bar-track {
+                position: relative;
+                height: 8px;
+                background: linear-gradient(to right, #ff9800, #4CAF50, #2196F3);
+                border-radius: 4px;
+                margin-bottom: 25px;
+                
+                .bar-marker {
+                    position: absolute;
+                    top: -4px;
+                    transform: translateX(-50%);
+                    
+                    &::before {
+                        content: '';
+                        display: block;
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                    }
+                    
+                    .marker-label {
+                        position: absolute;
+                        top: 20px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        font-size: 10px;
+                        white-space: nowrap;
+                    }
+                    
+                    &.standard::before {
+                        background: rgba(255, 255, 255, 0.5);
+                    }
+                    
+                    &.current::before {
+                        background: #4CAF50;
+                        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+                    }
                 }
             }
             
-            strong {
-                color: #ff6600;
+            .bar-labels {
+                display: flex;
+                justify-content: space-between;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.5);
+            }
+            
+            .comparison-diff {
+                margin-top: 10px;
+                text-align: center;
+                font-size: 13px;
+                color: rgba(255, 255, 255, 0.8);
             }
         }
-        
-        .error-box {
-            background: rgba(255, 0, 0, 0.2);
-            border: 1px solid rgba(255, 0, 0, 0.4);
-            padding: 10px 15px;
-            border-radius: 4px;
-            color: #ff6b6b;
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            background: rgba(0, 0, 0, 0.15);
+            
+            .empty-icon {
+                font-size: 48px;
+                margin-bottom: 15px;
+            }
+            
+            .empty-text {
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 14px;
+            }
+        }
+
+        .info-section {
+            padding: 15px;
+            font-size: 13px;
+            
+            details {
+                summary {
+                    cursor: pointer;
+                    font-weight: 500;
+                    margin-bottom: 10px;
+                    
+                    &:hover {
+                        color: #ff6600;
+                    }
+                }
+                
+                p {
+                    margin: 10px 0;
+                    line-height: 1.5;
+                    color: rgba(255, 255, 255, 0.8);
+                }
+                
+                ul {
+                    margin: 10px 0;
+                    padding-left: 20px;
+                    
+                    li {
+                        margin: 5px 0;
+                        line-height: 1.4;
+                        color: rgba(255, 255, 255, 0.8);
+                    }
+                }
+            }
         }
     }
-    
-    // Utility classes
+
+    // Utilities
     .mb-15 {
         margin-bottom: 15px;
     }
-    
-    .mt-15 {
-        margin-top: 15px;
-    }
-    
+
     .rounded-box {
         border-radius: 6px;
     }
-    
+
     .bg-secondary {
         background: rgba(255, 255, 255, 0.05);
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
     }
 </style>
