@@ -183,11 +183,35 @@
         ? Math.max(0, Math.min(100, ((result.density - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100))
         : 50;
 
+    // Forecast models that support getPointForecastData
+    const FORECAST_MODELS = ['ecmwf', 'gfs', 'icon', 'iconEu', 'iconD2', 'arome', 'ukv', 'nam', 'namConus', 'namHawaii', 'namAlaska', 'hrrr', 'bomAccess', 'mblue', 'cams', 'efi'];
+    
+    /**
+     * Check if a product is a forecast model
+     */
+    function isForecastModel(product: string): boolean {
+        return FORECAST_MODELS.includes(product);
+    }
+    
+    /**
+     * Get the model to use for fetching data
+     * Falls back to ecmwf if current product isn't a forecast model
+     */
+    function getModelForFetch(): string {
+        const product = store.get('product') || 'ecmwf';
+        if (isForecastModel(product)) {
+            return product;
+        }
+        // Fall back to ecmwf for non-forecast products like radar, satellite, etc.
+        return 'ecmwf';
+    }
+
     /**
      * Update store values
      */
     function updateStoreValues() {
-        currentModel = store.get('product') || 'ecmwf';
+        const product = store.get('product') || 'ecmwf';
+        currentModel = isForecastModel(product) ? product : `${product} → ecmwf`;
         currentLevel = store.get('level') || 'surface';
     }
 
@@ -235,7 +259,7 @@
         });
 
         try {
-            const model = store.get('product') || 'ecmwf';
+            const model = getModelForFetch();
             
             const response: HttpPayload<WeatherDataPayload<DataHash>> = await getPointForecastData(
                 model,
