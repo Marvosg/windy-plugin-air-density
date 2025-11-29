@@ -184,7 +184,14 @@
         : 50;
 
     // Forecast models that support getPointForecastData
-    const FORECAST_MODELS = ['ecmwf', 'gfs', 'icon', 'iconEu', 'iconD2', 'arome', 'ukv', 'nam', 'namConus', 'namHawaii', 'namAlaska', 'hrrr', 'bomAccess', 'mblue', 'cams', 'efi'];
+    const FORECAST_MODELS = [
+        'ecmwf', 'gfs', 'icon', 'iconEu', 'iconD2', 
+        'arome', 'aromeAntilles', 'aromeFrance', 'aromeReunion',
+        'ukv', 'nam', 'namConus', 'namHawaii', 'namAlaska', 
+        'hrrr', 'bomAccess', 'mblue', 'cams', 'efi',
+        'czeAladin', 'canHrdps', 'canRdwps', 'jmaMsm', 'jmaGsm',
+        'iconWaves', 'gwam', 'ewam', 'cfsv2'
+    ];
     
     /**
      * Check if a product is a forecast model
