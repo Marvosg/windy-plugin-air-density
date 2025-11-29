@@ -27,19 +27,11 @@
         </button>
     </div>
 
-    <p class="intro-text">
-        {#if trackingMode}
-            Move the map to update air density at the center crosshair.
-        {:else}
-            Click anywhere on the map to calculate air density.
-        {/if}
-    </p>
-
     <!-- Current Settings -->
     <div class="settings-panel rounded-box mb-15">
         <div class="setting-row">
             <span class="label">Model:</span>
-            <span class="value">{currentModel}</span>
+            <span class="value">{displayModel}</span>
         </div>
         <div class="setting-row">
             <span class="label">Level:</span>
@@ -51,14 +43,14 @@
     {#if isLoading}
         <div class="loading-panel rounded-box mb-15">
             <div class="spinner"></div>
-            <span>Loading weather data...</span>
+            <span>Loading...</span>
         </div>
     {/if}
 
     <!-- Error State -->
     {#if error}
         <div class="error-box mb-15">
-            <strong>Error:</strong> {error}
+            {error}
         </div>
     {/if}
 
@@ -66,7 +58,7 @@
     {#if result && !isLoading}
         <div class="result-panel rounded-box mb-15">
             <div class="result-header">
-                <span class="location-name">{locationName || 'Selected Location'}</span>
+                <span class="location-name">{locationName || 'Location'}</span>
                 <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
             </div>
             
@@ -93,18 +85,18 @@
 
             <div class="density-context">
                 {#if result.density < 1.1}
-                    <span class="context-tag low">Low density (warm/humid/high altitude)</span>
+                    <span class="context-tag low">Low (warm/humid/high alt)</span>
                 {:else if result.density > 1.3}
-                    <span class="context-tag high">High density (cold/dry/low altitude)</span>
+                    <span class="context-tag high">High (cold/dry/low alt)</span>
                 {:else}
-                    <span class="context-tag normal">Near standard density (~1.225 kg/m³)</span>
+                    <span class="context-tag normal">Normal (~1.225)</span>
                 {/if}
             </div>
         </div>
 
         <!-- Comparison -->
         <div class="comparison-panel rounded-box mb-15">
-            <div class="comparison-title">Comparison to Standard</div>
+            <div class="comparison-title">vs Standard (1.225 kg/m³)</div>
             <div class="comparison-bar">
                 <div class="bar-track">
                     <div class="bar-marker standard" style="left: {standardPosition}%">
@@ -121,12 +113,8 @@
                 </div>
             </div>
             <div class="comparison-diff">
-                {#if result.density !== DENSITY_STANDARD}
-                    {((result.density - DENSITY_STANDARD) / DENSITY_STANDARD * 100).toFixed(1)}% 
-                    {result.density > DENSITY_STANDARD ? 'above' : 'below'} standard
-                {:else}
-                    At standard density
-                {/if}
+                {((result.density - DENSITY_STANDARD) / DENSITY_STANDARD * 100).toFixed(1)}% 
+                {result.density > DENSITY_STANDARD ? 'above' : 'below'} standard
             </div>
         </div>
     {/if}
@@ -136,11 +124,7 @@
         <div class="empty-state rounded-box">
             <div class="empty-icon">{trackingMode ? '⊕' : '📍'}</div>
             <div class="empty-text">
-                {#if trackingMode}
-                    Move the map to calculate air density
-                {:else}
-                    Click on the map to calculate air density
-                {/if}
+                {trackingMode ? 'Pan the map to measure' : 'Click on map to measure'}
             </div>
         </div>
     {/if}
@@ -150,18 +134,12 @@
         <details>
             <summary>About Air Density</summary>
             <p>
-                Air density (ρ) is the mass per unit volume of Earth's atmosphere, 
-                typically measured in kg/m³. It varies with:
+                Air density varies with temperature, pressure, humidity, and altitude.
+                Standard sea-level density is <strong>1.225 kg/m³</strong> at 15°C, 1013.25 hPa.
             </p>
-            <ul>
-                <li><strong>Temperature:</strong> Warmer air is less dense</li>
-                <li><strong>Pressure:</strong> Higher pressure means higher density</li>
-                <li><strong>Humidity:</strong> Moist air is slightly less dense than dry air</li>
-                <li><strong>Altitude:</strong> Density decreases with elevation</li>
-            </ul>
-            <p>
-                Standard sea-level density is approximately <strong>1.225 kg/m³</strong> 
-                at 15°C and 1013.25 hPa.
+            <p class="note">
+                <strong>Note:</strong> Data uses surface-level values. The "Level" setting 
+                affects display layers but forecast data is primarily surface-based.
             </p>
         </details>
     </div>
@@ -185,6 +163,7 @@
     const DENSITY_STANDARD = 1.225;
     const DENSITY_MIN = 0.9;
     const DENSITY_MAX = 1.5;
+    const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
 
     interface DensityResult {
         lat: number;
@@ -193,7 +172,6 @@
         pressure: number;
         humidity: number;
         density: number;
-        model: string;
     }
 
     // State
@@ -201,13 +179,14 @@
     let error: string | null = null;
     let result: DensityResult | null = null;
     let locationName: string | null = null;
-    let currentModel = 'ecmwf';
     let currentLevel = 'surface';
+    let displayModel = 'ecmwf';
     let marker: L.Marker | null = null;
     let crosshair: L.Marker | null = null;
     let trackingMode = true;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
+    let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
     // Computed positions for comparison bar
     $: standardPosition = ((DENSITY_STANDARD - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100;
@@ -218,7 +197,7 @@
     // Global models that cover everywhere
     const GLOBAL_MODELS = ['ecmwf', 'gfs', 'icon', 'mblue', 'cams', 'cfsv2'];
     
-    // Regional models and their approximate coverage
+    // Regional models
     const REGIONAL_MODELS = [
         'iconEu', 'iconD2', 'arome', 'aromeAntilles', 'aromeFrance', 'aromeReunion',
         'ukv', 'nam', 'namConus', 'namHawaii', 'namAlaska', 'hrrr', 'bomAccess',
@@ -236,7 +215,7 @@
     }
     
     /**
-     * Get the model to use for fetching data
+     * Get the model to use for fetching
      */
     function getModelForFetch(): string {
         const product = store.get('product') || 'ecmwf';
@@ -247,16 +226,14 @@
     }
 
     /**
-     * Update store values
+     * Update level display
      */
-    function updateStoreValues() {
-        const product = store.get('product') || 'ecmwf';
-        currentModel = isForecastModel(product) ? product : `${product} → ecmwf`;
+    function updateLevel() {
         currentLevel = store.get('level') || 'surface';
     }
 
     /**
-     * Place or update the marker on the map
+     * Place or update the marker on the map (click mode only)
      */
     function updateMarker(lat: number, lon: number) {
         if (!trackingMode) {
@@ -271,7 +248,7 @@
     }
 
     /**
-     * Remove the marker from the map
+     * Remove the marker
      */
     function removeMarker() {
         if (marker) {
@@ -281,7 +258,7 @@
     }
 
     /**
-     * Create crosshair icon for center tracking
+     * Create crosshair icon
      */
     function createCrosshairIcon(): L.DivIcon {
         return L.divIcon({
@@ -291,8 +268,8 @@
                 <div class="crosshair-v"></div>
                 <div class="crosshair-dot"></div>
             </div>`,
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
+            iconSize: [50, 50],
+            iconAnchor: [25, 25]
         });
     }
 
@@ -300,13 +277,16 @@
      * Update crosshair position
      */
     function updateCrosshair() {
+        if (!trackingMode) return;
+        
         const center = map.getCenter();
         if (crosshair) {
             crosshair.setLatLng(center);
         } else {
             crosshair = L.marker(center, {
                 icon: createCrosshairIcon(),
-                interactive: false
+                interactive: false,
+                zIndexOffset: 1000
             }).addTo(map);
         }
     }
@@ -322,29 +302,14 @@
     }
 
     /**
-     * Fetch data with fallback to ECMWF if regional model fails
-     */
-    async function fetchWithFallback(latLon: LatLon, model: string): Promise<HttpPayload<WeatherDataPayload<DataHash>>> {
-        try {
-            return await getPointForecastData(model, latLon, name);
-        } catch (err) {
-            // If regional model fails, try ecmwf
-            if (model !== 'ecmwf' && !GLOBAL_MODELS.includes(model)) {
-                console.log(`[Air Density] ${model} failed, falling back to ecmwf`);
-                currentModel = `${model} → ecmwf`;
-                return await getPointForecastData('ecmwf', latLon, name);
-            }
-            throw err;
-        }
-    }
-
-    /**
      * Main calculation function
      */
-    async function calculateDensity(latLon: LatLon) {
+    async function calculateDensity(latLon: LatLon, silent: boolean = false) {
         const { lat, lon } = latLon;
         
-        isLoading = true;
+        if (!silent) {
+            isLoading = true;
+        }
         error = null;
         currentLocation = latLon;
         
@@ -355,18 +320,42 @@
             updateMarker(lat, lon);
         }
         
-        // Get location name (don't wait for it)
+        // Get location name
         reverseName.get(latLon).then(({ name: locName }) => {
             locationName = locName;
         }).catch(() => {
             locationName = null;
         });
 
+        // Determine which model to use
+        const requestedModel = getModelForFetch();
+        let usedModel = requestedModel;
+        let response: HttpPayload<WeatherDataPayload<DataHash>>;
+
         try {
-            const model = getModelForFetch();
-            updateStoreValues();
+            // Try the requested model first
+            try {
+                response = await getPointForecastData(requestedModel, latLon, name);
+            } catch (fetchErr) {
+                // If regional model fails, fall back to ecmwf
+                if (requestedModel !== 'ecmwf' && !GLOBAL_MODELS.includes(requestedModel)) {
+                    console.log(`[Air Density] ${requestedModel} failed for this location, using ecmwf`);
+                    usedModel = 'ecmwf';
+                    response = await getPointForecastData('ecmwf', latLon, name);
+                } else {
+                    throw fetchErr;
+                }
+            }
             
-            const response = await fetchWithFallback(latLon, model);
+            // Update display model AFTER successful fetch
+            const storeProduct = store.get('product') || 'ecmwf';
+            if (!isForecastModel(storeProduct)) {
+                displayModel = `${storeProduct} → ${usedModel}`;
+            } else if (usedModel !== requestedModel) {
+                displayModel = `${requestedModel} → ${usedModel}`;
+            } else {
+                displayModel = usedModel;
+            }
             
             if (!response.data || !response.data.data) {
                 throw new Error('No forecast data available');
@@ -375,7 +364,7 @@
             const weatherData = response.data.data;
             const currentTs = store.get('timestamp') || Date.now();
             
-            // Find the closest timestamp index
+            // Find closest timestamp
             const timestamps = weatherData.ts || [];
             let timeIndex = 0;
             let minDiff = Infinity;
@@ -419,10 +408,7 @@
                 pressureHPa = pressureValue / 100;
             }
 
-            // Use default humidity if not available
             const humidity = humidityValue ?? 50;
-
-            // Calculate air density
             const density = calculateAirDensity(tempCelsius, pressureHPa, humidity);
 
             result = {
@@ -431,31 +417,32 @@
                 temp: tempCelsius,
                 pressure: pressureHPa,
                 humidity,
-                density,
-                model: currentModel
+                density
             };
 
         } catch (err) {
             console.error('Error calculating air density:', err);
-            error = err instanceof Error ? err.message : 'Failed to fetch weather data';
-            result = null;
+            error = err instanceof Error ? err.message : 'Failed to fetch data';
+            // Don't clear result on silent refresh errors
+            if (!silent) {
+                result = null;
+            }
         } finally {
             isLoading = false;
         }
     }
 
     /**
-     * Handle map click (only in click mode)
+     * Handle map click (click mode only)
      */
     function onMapClick(e: L.LeafletMouseEvent) {
         if (!trackingMode) {
-            const latLon: LatLon = { lat: e.latlng.lat, lon: e.latlng.lng };
-            calculateDensity(latLon);
+            calculateDensity({ lat: e.latlng.lat, lon: e.latlng.lng });
         }
     }
 
     /**
-     * Handle map move (in tracking mode)
+     * Handle map move (tracking mode - update crosshair visually)
      */
     function onMapMove() {
         if (trackingMode) {
@@ -464,14 +451,11 @@
     }
 
     /**
-     * Handle map move end - recalculate after map stops moving
+     * Handle map move end - recalculate
      */
     function onMapMoveEnd() {
         if (trackingMode) {
-            // Debounce to avoid too many API calls
-            if (moveTimeout) {
-                clearTimeout(moveTimeout);
-            }
+            if (moveTimeout) clearTimeout(moveTimeout);
             moveTimeout = setTimeout(() => {
                 const center = map.getCenter();
                 calculateDensity({ lat: center.lat, lon: center.lng });
@@ -480,12 +464,32 @@
     }
 
     /**
-     * Handle store/model change - recalculate with current location
+     * Handle store changes - recalculate
      */
     function onStoreChange() {
-        updateStoreValues();
+        updateLevel();
         if (currentLocation && !isLoading) {
             calculateDensity(currentLocation);
+        }
+    }
+
+    /**
+     * Auto-refresh timer
+     */
+    function startAutoRefresh() {
+        stopAutoRefresh();
+        refreshInterval = setInterval(() => {
+            if (currentLocation && !isLoading) {
+                console.log('[Air Density] Auto-refresh');
+                calculateDensity(currentLocation, true);
+            }
+        }, AUTO_REFRESH_INTERVAL);
+    }
+
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
         }
     }
 
@@ -498,7 +502,6 @@
         if (enabled) {
             removeMarker();
             updateCrosshair();
-            // Calculate immediately for current center
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         } else {
@@ -508,19 +511,20 @@
 
     // Plugin lifecycle
     export const onopen = (params?: LatLon) => {
-        updateStoreValues();
+        updateLevel();
         
-        // Register map event handlers
+        // Register map events
         map.on('click', onMapClick);
         map.on('move', onMapMove);
         map.on('moveend', onMapMoveEnd);
         
-        // If opened with coordinates, use them
+        // Start auto-refresh
+        startAutoRefresh();
+        
         if (params && params.lat !== undefined && params.lon !== undefined) {
             trackingMode = false;
             calculateDensity(params);
         } else if (trackingMode) {
-            // Start with center tracking
             updateCrosshair();
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
@@ -528,12 +532,10 @@
     };
 
     onMount(() => {
-        // Subscribe to store changes
         store.on('product', onStoreChange);
         store.on('level', onStoreChange);
         store.on('timestamp', onStoreChange);
-        
-        updateStoreValues();
+        updateLevel();
     });
 
     onDestroy(() => {
@@ -545,9 +547,8 @@
         store.off('timestamp', onStoreChange);
         removeMarker();
         removeCrosshair();
-        if (moveTimeout) {
-            clearTimeout(moveTimeout);
-        }
+        stopAutoRefresh();
+        if (moveTimeout) clearTimeout(moveTimeout);
     });
 </script>
 
@@ -580,13 +581,6 @@
             }
         }
 
-        .intro-text {
-            margin: 0 0 15px 0;
-            line-height: 1.5;
-            color: rgba(255, 255, 255, 0.8);
-            font-size: 14px;
-        }
-
         .settings-panel {
             background: rgba(0, 0, 0, 0.2);
             padding: 10px 15px;
@@ -609,15 +603,15 @@
 
         .loading-panel {
             background: rgba(255, 165, 0, 0.15);
-            padding: 20px;
+            padding: 15px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 12px;
+            gap: 10px;
             
             .spinner {
-                width: 20px;
-                height: 20px;
+                width: 18px;
+                height: 18px;
                 border: 2px solid rgba(255, 255, 255, 0.3);
                 border-top-color: #ff6600;
                 border-radius: 50%;
@@ -628,9 +622,10 @@
         .error-box {
             background: rgba(255, 0, 0, 0.15);
             border: 1px solid rgba(255, 0, 0, 0.3);
-            padding: 12px 15px;
+            padding: 10px 15px;
             border-radius: 6px;
             color: #ff6b6b;
+            font-size: 13px;
         }
 
         .result-panel {
@@ -641,17 +636,17 @@
                 display: flex;
                 justify-content: space-between;
                 align-items: baseline;
-                margin-bottom: 15px;
-                padding-bottom: 10px;
+                margin-bottom: 12px;
+                padding-bottom: 8px;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 
                 .location-name {
                     font-weight: 600;
-                    font-size: 16px;
+                    font-size: 15px;
                 }
                 
                 .coordinates {
-                    font-size: 12px;
+                    font-size: 11px;
                     color: rgba(255, 255, 255, 0.6);
                 }
             }
@@ -659,25 +654,25 @@
             .result-grid {
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
-                gap: 10px;
-                margin-bottom: 15px;
+                gap: 8px;
+                margin-bottom: 12px;
                 
                 .result-item {
                     text-align: center;
-                    padding: 10px;
+                    padding: 8px;
                     background: rgba(0, 0, 0, 0.2);
                     border-radius: 6px;
                     
                     .result-label {
                         display: block;
-                        font-size: 11px;
+                        font-size: 10px;
                         color: rgba(255, 255, 255, 0.6);
-                        margin-bottom: 4px;
+                        margin-bottom: 3px;
                     }
                     
                     .result-value {
                         display: block;
-                        font-size: 16px;
+                        font-size: 15px;
                         font-weight: 600;
                     }
                 }
@@ -685,27 +680,27 @@
             
             .density-result {
                 text-align: center;
-                padding: 15px;
+                padding: 12px;
                 background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
                 border-radius: 8px;
-                margin-bottom: 10px;
+                margin-bottom: 8px;
                 
                 .density-label {
                     display: block;
-                    font-size: 12px;
+                    font-size: 11px;
                     color: rgba(255, 255, 255, 0.7);
-                    margin-bottom: 5px;
+                    margin-bottom: 4px;
                 }
                 
                 .density-value {
                     display: block;
-                    font-size: 32px;
+                    font-size: 28px;
                     font-weight: 700;
                     color: #4CAF50;
                 }
                 
                 .density-unit {
-                    font-size: 14px;
+                    font-size: 13px;
                     color: rgba(255, 255, 255, 0.7);
                 }
             }
@@ -715,9 +710,9 @@
                 
                 .context-tag {
                     display: inline-block;
-                    padding: 4px 12px;
-                    border-radius: 12px;
-                    font-size: 12px;
+                    padding: 3px 10px;
+                    border-radius: 10px;
+                    font-size: 11px;
                     
                     &.low {
                         background: rgba(255, 152, 0, 0.2);
@@ -739,12 +734,12 @@
 
         .comparison-panel {
             background: rgba(0, 0, 0, 0.2);
-            padding: 15px;
+            padding: 12px;
             
             .comparison-title {
-                font-size: 13px;
+                font-size: 12px;
                 color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 12px;
+                margin-bottom: 10px;
             }
             
             .bar-track {
@@ -752,7 +747,7 @@
                 height: 8px;
                 background: linear-gradient(to right, #ff9800, #4CAF50, #2196F3);
                 border-radius: 4px;
-                margin-bottom: 25px;
+                margin-bottom: 22px;
                 
                 .bar-marker {
                     position: absolute;
@@ -762,18 +757,18 @@
                     &::before {
                         content: '';
                         display: block;
-                        width: 16px;
-                        height: 16px;
+                        width: 14px;
+                        height: 14px;
                         border-radius: 50%;
                         border: 2px solid white;
                     }
                     
                     .marker-label {
                         position: absolute;
-                        top: 20px;
+                        top: 18px;
                         left: 50%;
                         transform: translateX(-50%);
-                        font-size: 10px;
+                        font-size: 9px;
                         white-space: nowrap;
                     }
                     
@@ -783,7 +778,7 @@
                     
                     &.current::before {
                         background: #4CAF50;
-                        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+                        box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
                     }
                 }
             }
@@ -791,43 +786,42 @@
             .bar-labels {
                 display: flex;
                 justify-content: space-between;
-                font-size: 11px;
+                font-size: 10px;
                 color: rgba(255, 255, 255, 0.5);
             }
             
             .comparison-diff {
-                margin-top: 10px;
+                margin-top: 8px;
                 text-align: center;
-                font-size: 13px;
+                font-size: 12px;
                 color: rgba(255, 255, 255, 0.8);
             }
         }
 
         .empty-state {
             text-align: center;
-            padding: 40px 20px;
+            padding: 30px 20px;
             background: rgba(0, 0, 0, 0.15);
             
             .empty-icon {
-                font-size: 48px;
-                margin-bottom: 15px;
+                font-size: 40px;
+                margin-bottom: 10px;
             }
             
             .empty-text {
                 color: rgba(255, 255, 255, 0.7);
-                font-size: 14px;
+                font-size: 13px;
             }
         }
 
         .info-section {
-            padding: 15px;
-            font-size: 13px;
+            padding: 12px;
+            font-size: 12px;
             
             details {
                 summary {
                     cursor: pointer;
                     font-weight: 500;
-                    margin-bottom: 10px;
                     
                     &:hover {
                         color: #ff6600;
@@ -835,66 +829,63 @@
                 }
                 
                 p {
-                    margin: 10px 0;
-                    line-height: 1.5;
+                    margin: 8px 0;
+                    line-height: 1.4;
                     color: rgba(255, 255, 255, 0.8);
-                }
-                
-                ul {
-                    margin: 10px 0;
-                    padding-left: 20px;
                     
-                    li {
-                        margin: 5px 0;
-                        line-height: 1.4;
-                        color: rgba(255, 255, 255, 0.8);
+                    &.note {
+                        font-size: 11px;
+                        color: rgba(255, 255, 255, 0.6);
+                        font-style: italic;
                     }
                 }
             }
         }
     }
 
-    // Crosshair styles (global so they work on the map)
+    // Crosshair styles
     :global(.density-crosshair) {
+        pointer-events: none !important;
+        
         .crosshair-inner {
             position: relative;
-            width: 40px;
-            height: 40px;
+            width: 50px;
+            height: 50px;
         }
         
         .crosshair-h, .crosshair-v {
             position: absolute;
-            background: rgba(255, 102, 0, 0.8);
+            background: #ff6600;
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
         }
         
         .crosshair-h {
-            width: 40px;
+            width: 50px;
             height: 2px;
-            top: 19px;
+            top: 24px;
             left: 0;
         }
         
         .crosshair-v {
             width: 2px;
-            height: 40px;
+            height: 50px;
             top: 0;
-            left: 19px;
+            left: 24px;
         }
         
         .crosshair-dot {
             position: absolute;
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             background: #ff6600;
             border: 2px solid white;
             border-radius: 50%;
-            top: 14px;
-            left: 14px;
+            top: 18px;
+            left: 18px;
             box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
         }
     }
 
-    // Utilities
     .mb-15 {
         margin-bottom: 15px;
     }
