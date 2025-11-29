@@ -330,6 +330,7 @@
 
     // Plugin lifecycle
     export const onopen = (params?: LatLon) => {
+        console.log('[Air Density] Plugin opened with params:', params);
         updateStoreValues();
         
         // If opened with coordinates (e.g., from context menu), calculate immediately
@@ -339,8 +340,13 @@
     };
 
     onMount(() => {
+        console.log('[Air Density] onMount called, registering singleclick for:', name);
+        
         // Subscribe to map clicks
-        singleclick.on(name, handleMapClick);
+        singleclick.on(name, (latLon: LatLon) => {
+            console.log('[Air Density] Map clicked at:', latLon);
+            handleMapClick(latLon);
+        });
         
         // Subscribe to store changes
         store.on('product', updateStoreValues);
@@ -350,7 +356,8 @@
     });
 
     onDestroy(() => {
-        singleclick.off(name, handleMapClick);
+        console.log('[Air Density] onDestroy called, cleaning up');
+        singleclick.off(name);
         store.off('product', updateStoreValues);
         store.off('level', updateStoreValues);
         removeMarker();
