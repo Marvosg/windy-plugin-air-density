@@ -144,7 +144,6 @@
     import bcast from '@windy/broadcast';
     import { map, markers } from '@windy/map';
     import store from '@windy/store';
-    import { singleclick } from '@windy/singleclick';
     import { getPointForecastData } from '@windy/fetch';
     import * as reverseName from '@windy/reverseName';
     import { onDestroy, onMount } from 'svelte';
@@ -328,10 +327,23 @@
         }
     }
 
+    /**
+     * Direct map click handler (Leaflet event)
+     */
+    function onMapClick(e: L.LeafletMouseEvent) {
+        console.log('[Air Density] Map click event:', e.latlng);
+        const latLon: LatLon = { lat: e.latlng.lat, lon: e.latlng.lng };
+        handleMapClick(latLon);
+    }
+
     // Plugin lifecycle
     export const onopen = (params?: LatLon) => {
         console.log('[Air Density] Plugin opened with params:', params);
         updateStoreValues();
+        
+        // Register map click handler when plugin opens
+        map.on('click', onMapClick);
+        console.log('[Air Density] Map click handler registered');
         
         // If opened with coordinates (e.g., from context menu), calculate immediately
         if (params && params.lat !== undefined && params.lon !== undefined) {
@@ -340,13 +352,7 @@
     };
 
     onMount(() => {
-        console.log('[Air Density] onMount called, registering singleclick for:', name);
-        
-        // Subscribe to map clicks
-        singleclick.on(name, (latLon: LatLon) => {
-            console.log('[Air Density] Map clicked at:', latLon);
-            handleMapClick(latLon);
-        });
+        console.log('[Air Density] onMount called');
         
         // Subscribe to store changes
         store.on('product', updateStoreValues);
@@ -357,7 +363,7 @@
 
     onDestroy(() => {
         console.log('[Air Density] onDestroy called, cleaning up');
-        singleclick.off(name);
+        map.off('click', onMapClick);
         store.off('product', updateStoreValues);
         store.off('level', updateStoreValues);
         removeMarker();
