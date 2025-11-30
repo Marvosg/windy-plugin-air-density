@@ -190,28 +190,32 @@
             ⊕ Map Center
         </button>
         
-        <div class="preset-buttons">
-            {#each [1, 2, 3, 4] as presetNum}
-                {@const preset = presetLocations[presetNum]}
-                {@const pos = preset?.density ? getDensityPosition(preset.density) : 0}
-                {@const bgColor = preset?.density ? getGradientBg(pos, 0.3) : null}
-                {@const borderColor = preset?.density ? getGradientColor(pos) : null}
-                <button 
-                    class="preset-btn" 
-                    class:active={!trackingMode && activePreset === presetNum}
-                    class:has-location={preset !== null}
-                    on:click={() => selectPreset(presetNum)}
-                    title={preset?.name || 'Empty preset'}
-                    style={bgColor ? `background: ${bgColor}; border-color: ${borderColor}` : ''}
-                >
-                    {#if preset}
-                        <span class="preset-name">{preset.name || 'Location'}</span>
-                        <span class="preset-density">{preset.density?.toFixed(4) || '—'}</span>
-                    {:else}
-                        <span class="preset-empty">{presetNum}</span>
-                    {/if}
-                </button>
-            {/each}
+        <div class="preset-buttons-container">
+            <div class="loading-overlay" class:visible={showPresetsLoadingOverlay}>
+                <div class="spinner"></div>
+            </div>
+            <div class="preset-buttons">
+                {#each [1, 2, 3, 4] as presetNum}
+                    {@const preset = presetLocations[presetNum]}
+                    {@const pos = preset?.density ? getDensityPosition(preset.density) : 0}
+                    {@const bgColor = preset?.density ? getGradientBg(pos, 0.3) : null}
+                    <button 
+                        class="preset-btn" 
+                        class:active={!trackingMode && activePreset === presetNum}
+                        class:has-location={preset !== null}
+                        on:click={() => selectPreset(presetNum)}
+                        title={preset?.name || 'Empty preset'}
+                        style={bgColor ? `background: ${bgColor}` : ''}
+                    >
+                        {#if preset}
+                            <span class="preset-name">{preset.name || 'Location'}</span>
+                            <span class="preset-density">{preset.density?.toFixed(4) || '—'}</span>
+                        {:else}
+                            <span class="preset-empty">{presetNum}</span>
+                        {/if}
+                    </button>
+                {/each}
+            </div>
         </div>
     </div>
 
@@ -268,6 +272,8 @@
     let isLoading = false;
     let showLoadingOverlay = false;
     let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
+    let showPresetsLoadingOverlay = false;
+    let presetsLoadingTimeout: ReturnType<typeof setTimeout> | null = null;
     let error: string | null = null;
     let result: DensityResult | null = null;
     let locationName: string | null = null;
@@ -476,6 +482,105 @@
         
         map.setView([preset.lat, preset.lon], map.getZoom());
         calculateDensity({ lat: preset.lat, lon: preset.lon });
+    }
+    
+    function setPresetsLoading(loading: boolean) {
+        if (loading) {
+            // Show overlay after 800ms delay
+            if (presetsLoadingTimeout) clearTimeout(presetsLoadingTimeout);
+            presetsLoadingTimeout = setTimeout(() => {
+                showPresetsLoadingOverlay = true;
+            }, 800);
+        } else {
+            // Clear pending timeout and hide overlay
+            if (presetsLoadingTimeout) {
+                clearTimeout(presetsLoadingTimeout);
+                presetsLoadingTimeout = null;
+            }
+            showPresetsLoadingOverlay = false;
+        }
+    }
+    
+    /**
+     * Update density values for all preset locations
+     * Called when model or time changes, and on auto-refresh
+     */
+    async function updatePresetDensities() {
+        const presetNums = [1, 2, 3, 4] as const;
+        
+        // Check if any presets exist
+        const hasPresets = presetNums.some(num => presetLocations[num] !== null);
+        if (!hasPresets) {
+            return;
+        }
+        
+        setPresetsLoading(true);
+        
+        try {
+            for (const num of presetNums) {
+                const preset = presetLocations[num];
+                if (!preset) {
+                    continue;
+                }
+                
+                try {
+                    const requestedModel = getModelForFetch();
+                    let response;
+                    
+                    try {
+                        response = await getPointForecastData(requestedModel, { lat: preset.lat, lon: preset.lon }, name);
+                    } catch {
+                        // Fallback to ecmwf
+                        if (requestedModel !== 'ecmwf' && !GLOBAL_MODELS.includes(requestedModel)) {
+                            response = await getPointForecastData('ecmwf', { lat: preset.lat, lon: preset.lon }, name);
+                        } else {
+                            continue; // Skip this preset on error
+                        }
+                    }
+                    
+                    if (!response?.data?.data) {
+                        continue;
+                    }
+                    
+                    const weatherData = response.data.data;
+                    const currentTs = store.get('timestamp') || Date.now();
+                    const timestamps = weatherData.ts || [];
+                    
+                    let timeIndex = 0;
+                    let minDiff = Infinity;
+                    
+                    for (let i = 0; i < timestamps.length; i++) {
+                        const diff = Math.abs(timestamps[i] - currentTs);
+                        if (diff < minDiff) {
+                            minDiff = diff;
+                            timeIndex = i;
+                        }
+                    }
+                    
+                    const tempValue = weatherData['temp-surface']?.[timeIndex] ?? weatherData.temp?.[timeIndex];
+                    const pressureValue = weatherData.pressure?.[timeIndex] ?? weatherData['sea_level_pressure']?.[timeIndex] ?? weatherData.slp?.[timeIndex];
+                    const humidityValue = weatherData['rh-surface']?.[timeIndex] ?? weatherData.rh?.[timeIndex];
+                    
+                    if (tempValue === undefined || pressureValue === undefined) {
+                        continue;
+                    }
+                    
+                    const tempCelsius = tempValue > 200 ? tempValue - 273.15 : tempValue;
+                    const pressureHPa = pressureValue > 10000 ? pressureValue / 100 : pressureValue;
+                    const humidity = humidityValue ?? 50;
+                    
+                    const density = calculateAirDensity(tempCelsius, pressureHPa, humidity);
+                    
+                    presetLocations[num] = { ...preset, density };
+                } catch {
+                    // Silently skip failed presets
+                }
+            }
+            
+            presetLocations = presetLocations; // Trigger reactivity
+        } finally {
+            setPresetsLoading(false);
+        }
     }
     
     function compareVersions(current: string, latest: string): boolean {
@@ -814,6 +919,8 @@
             if (currentLocation && !isLoading) {
                 calculateDensity(currentLocation, true);
             }
+            // Update preset densities on auto-refresh
+            updatePresetDensities();
             // Schedule the next one
             scheduleNextMinuteRefresh();
         }, msUntilNextMinute);
@@ -860,6 +967,9 @@
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         }
+        
+        // Update preset densities for new time
+        updatePresetDensities();
     }
     
     function onProductChange() {
@@ -874,6 +984,9 @@
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         }
+        
+        // Update preset densities for new model
+        updatePresetDensities();
     }
     
     function selectModel(model: string) {
@@ -965,6 +1078,7 @@
         stopAutoRefresh();
         if (moveTimeout) clearTimeout(moveTimeout);
         if (loadingTimeout) clearTimeout(loadingTimeout);
+        if (presetsLoadingTimeout) clearTimeout(presetsLoadingTimeout);
         if (trackNowInterval) clearInterval(trackNowInterval);
     });
 </script>
@@ -974,30 +1088,30 @@
         .update-banner {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            padding: 12px;
+            gap: 0.5rem;
+            padding: 0.75rem;
             background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
             border: 1px solid rgba(76, 175, 80, 0.4);
-            border-radius: 6px;
+            border-radius: 0.375rem;
             
             .update-header {
-                font-size: 13px;
+                font-size: 1rem;
                 font-weight: 600;
                 color: rgba(255, 255, 255, 0.95);
             }
             
             .update-instructions {
-                font-size: 11px;
+                font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.7);
                 margin: 0;
                 line-height: 1.4;
                 
                 code {
                     background: rgba(0, 0, 0, 0.3);
-                    padding: 2px 6px;
-                    border-radius: 3px;
+                    padding: 0.125rem 0.375rem;
+                    border-radius: 0.1875rem;
                     font-family: monospace;
-                    font-size: 10px;
+                    font-size: 0.625rem;
                     color: rgba(255, 255, 255, 0.9);
                 }
             }
@@ -1006,16 +1120,16 @@
                 display: flex;
                 align-items: stretch;
                 background: rgba(0, 0, 0, 0.3);
-                border-radius: 4px;
+                border-radius: 0.25rem;
                 overflow: hidden;
                 
                 .update-url-input {
                     flex: 1;
-                    padding: 6px 10px;
+                    padding: 0.375rem 0.625rem;
                     background: transparent;
                     border: none;
                     color: rgba(255, 255, 255, 0.9);
-                    font-size: 11px;
+                    font-size: 0.875rem;
                     font-family: monospace;
                     outline: none;
                     min-width: 0;
@@ -1026,7 +1140,7 @@
                 }
                 
                 .copy-btn {
-                    padding: 6px 10px;
+                    padding: 0.375rem 0.625rem;
                     background: rgba(76, 175, 80, 0.3);
                     border: none;
                     border-left: 1px solid rgba(255, 255, 255, 0.1);
@@ -1038,7 +1152,7 @@
                     }
                     
                     .copy-icon {
-                        font-size: 12px;
+                        font-size: 0.875rem;
                         color: white;
                     }
                 }
@@ -1048,12 +1162,12 @@
                 display: block;
                 width: 100%;
                 text-align: center;
-                padding: 8px 12px;
+                padding: 0.5rem 0.75rem;
                 background: rgba(76, 175, 80, 0.3);
                 border: 1px solid rgba(76, 175, 80, 0.5);
-                border-radius: 4px;
+                border-radius: 0.25rem;
                 color: #81c784;
-                font-size: 12px;
+                font-size: 0.875rem;
                 font-weight: 500;
                 cursor: pointer;
                 transition: all 0.2s;
@@ -1068,16 +1182,16 @@
         .mode-toggle {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 0.5rem;
             
             .mode-btn {
-                padding: 8px 12px;
+                padding: 0.5rem 0.75rem;
                 border: 1px solid rgba(255, 255, 255, 0.2);
                 background: rgba(0, 0, 0, 0.2);
                 color: rgba(255, 255, 255, 0.7);
-                border-radius: 6px;
+                border-radius: 0.375rem;
                 cursor: pointer;
-                font-size: 13px;
+                font-size: 1rem;
                 transition: all 0.2s;
                 
                 &:hover {
@@ -1097,17 +1211,17 @@
             
             .save-preset-row {
                 display: flex;
-                gap: 6px;
+                gap: 0.375rem;
                 
                 .save-preset-btn {
                     flex: 1;
-                    padding: 6px 8px;
+                    padding: 0.375rem 0.5rem;
                     border: 1px solid rgba(255, 255, 255, 0.15);
                     background: rgba(0, 0, 0, 0.15);
                     color: rgba(255, 255, 255, 0.6);
-                    border-radius: 4px;
+                    border-radius: 0.25rem;
                     cursor: pointer;
-                    font-size: 11px;
+                    font-size: 0.875rem;
                     transition: all 0.2s;
                     
                     &:hover:not(:disabled) {
@@ -1123,24 +1237,59 @@
                 }
             }
             
+            .preset-buttons-container {
+                position: relative;
+                
+                > .loading-overlay {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.4);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 0.375rem;
+                    z-index: 10;
+                    opacity: 0;
+                    pointer-events: none;
+                    transition: opacity 0.3s ease;
+                    
+                    &.visible {
+                        opacity: 1;
+                        pointer-events: auto;
+                    }
+                    
+                    .spinner {
+                        width: 1.25rem;
+                        height: 1.25rem;
+                        border: 0.1875rem solid rgba(255, 255, 255, 0.3);
+                        border-top-color: #ff6600;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                }
+            }
+            
             .preset-buttons {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 6px;
+                gap: 0.375rem;
                 
                 .preset-btn {
-                    padding: 10px 8px;
+                    padding: 0.625rem 0.5rem;
                     border: 1px solid rgba(255, 255, 255, 0.2);
                     background: rgba(0, 0, 0, 0.2);
                     color: rgba(255, 255, 255, 0.5);
-                    border-radius: 6px;
+                    border-radius: 0.375rem;
                     cursor: pointer;
                     transition: all 0.2s;
                     display: flex;
                     flex-direction: column;
                     align-items: center;
-                    gap: 2px;
-                    min-height: 50px;
+                    gap: 0.125rem;
+                    min-height: 3.125rem;
                     justify-content: center;
                     min-width: 0; // Allow shrinking for text ellipsis
                     
@@ -1154,12 +1303,12 @@
                     }
                     
                     &.active {
-                        border-color: #ff6600;
-                        box-shadow: 0 0 0 1px #ff6600;
+                        border-color: white;
+                        box-shadow: 0 0 0 1px white;
                     }
                     
                     .preset-name {
-                        font-size: 11px;
+                        font-size: 0.875rem;
                         font-weight: 500;
                         white-space: nowrap;
                         overflow: hidden;
@@ -1169,13 +1318,13 @@
                     }
                     
                     .preset-density {
-                        font-size: 13px;
+                        font-size: 1rem;
                         font-weight: 700;
                         color: white;
                     }
                     
                     .preset-empty {
-                        font-size: 16px;
+                        font-size: 1rem;
                         font-weight: 600;
                         opacity: 0.4;
                     }
@@ -1194,20 +1343,20 @@
 
         .settings-panel {
             background: rgba(0, 0, 0, 0.2);
-            padding: 10px 15px;
+            padding: 0.625rem 0.9375rem;
             
             .model-info {
-                margin-bottom: 10px;
-                padding-bottom: 8px;
+                margin-bottom: 0.625rem;
+                padding-bottom: 0.5rem;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 
                 .model-row {
                     display: flex;
-                    gap: 6px;
-                    font-size: 12px;
+                    gap: 0.375rem;
+                    font-size: 0.875rem;
                     
                     &:not(:last-child) {
-                        margin-bottom: 4px;
+                        margin-bottom: 0.25rem;
                     }
                     
                     .model-label {
@@ -1224,7 +1373,7 @@
                         
                         .fallback-note {
                             font-weight: 400;
-                            font-size: 10px;
+                            font-size: 0.625rem;
                             opacity: 0.7;
                         }
                     }
@@ -1234,16 +1383,16 @@
             .model-chips {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 6px;
+                gap: 0.375rem;
                 
                 .model-chip {
-                    padding: 4px 10px;
+                    padding: 0.25rem 0.625rem;
                     border: 1px solid rgba(255, 255, 255, 0.2);
                     background: rgba(0, 0, 0, 0.2);
                     color: rgba(255, 255, 255, 0.7);
-                    border-radius: 12px;
+                    border-radius: 0.75rem;
                     cursor: pointer;
-                    font-size: 11px;
+                    font-size: 0.875rem;
                     text-transform: uppercase;
                     transition: all 0.2s;
                     
@@ -1264,15 +1413,15 @@
         .error-box {
             background: rgba(255, 0, 0, 0.15);
             border: 1px solid rgba(255, 0, 0, 0.3);
-            padding: 10px 15px;
-            border-radius: 6px;
+            padding: 0.625rem 0.9375rem;
+            border-radius: 0.375rem;
             color: #ff6b6b;
-            font-size: 13px;
+            font-size: 1rem;
         }
 
         .result-panel {
             background: rgba(0, 0, 0, 0.25);
-            padding: 15px;
+            padding: 0.9375rem;
             position: relative;
             
             .loading-overlay {
@@ -1285,7 +1434,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                border-radius: 6px;
+                border-radius: 0.375rem;
                 z-index: 10;
                 opacity: 0;
                 pointer-events: none;
@@ -1297,9 +1446,9 @@
                 }
                 
                 .spinner {
-                    width: 24px;
-                    height: 24px;
-                    border: 3px solid rgba(255, 255, 255, 0.3);
+                    width: 1.5rem;
+                    height: 1.5rem;
+                    border: 0.1875rem solid rgba(255, 255, 255, 0.3);
                     border-top-color: #ff6600;
                     border-radius: 50%;
                     animation: spin 1s linear infinite;
@@ -1310,23 +1459,29 @@
                 display: flex;
                 justify-content: space-between;
                 align-items: flex-start;
-                margin-bottom: 12px;
-                padding-bottom: 8px;
+                margin-bottom: 0.75rem;
+                padding-bottom: 0.5rem;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
                 
                 .location-info {
                     display: flex;
                     flex-direction: column;
-                    gap: 2px;
+                    gap: 0.125rem;
+                    min-width: 0; // Allow text to truncate
+                    flex: 1;
                 }
                 
                 .location-name {
                     font-weight: 600;
-                    font-size: 15px;
+                    font-size: 1rem;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 100%;
                 }
                 
                 .coordinates {
-                    font-size: 11px;
+                    font-size: 0.875rem;
                     color: rgba(255, 255, 255, 0.5);
                 }
                 
@@ -1334,11 +1489,11 @@
                     display: flex;
                     flex-direction: column;
                     align-items: flex-end;
-                    gap: 4px;
+                    gap: 0.25rem;
                 }
                 
                 .updated-at {
-                    font-size: 15px;
+                    font-size: 1rem;
                     font-weight: 600;
                     color: white;
                     min-width: max-content;
@@ -1347,15 +1502,15 @@
                 .track-now-label {
                     display: flex;
                     align-items: center;
-                    gap: 4px;
+                    gap: 0.25rem;
                     cursor: pointer;
-                    font-size: 10px;
+                    font-size: 0.625rem;
                     color: rgba(255, 255, 255, 0.5);
                     
                     input[type="checkbox"] {
                         accent-color: #ff6600;
-                        width: 12px;
-                        height: 12px;
+                        width: 0.75rem;
+                        height: 0.75rem;
                         cursor: pointer;
                     }
                     
@@ -1368,25 +1523,25 @@
             .result-grid {
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
-                gap: 8px;
-                margin-bottom: 12px;
+                gap: 0.5rem;
+                margin-bottom: 0.75rem;
                 
                 .result-item {
                     text-align: center;
-                    padding: 8px;
+                    padding: 0.5rem;
                     background: rgba(0, 0, 0, 0.2);
-                    border-radius: 6px;
+                    border-radius: 0.375rem;
                     
                     .result-label {
                         display: block;
-                        font-size: 10px;
+                        font-size: 0.625rem;
                         color: rgba(255, 255, 255, 0.6);
-                        margin-bottom: 3px;
+                        margin-bottom: 0.1875rem;
                     }
                     
                     .result-value {
                         display: block;
-                        font-size: 15px;
+                        font-size: 1rem;
                         font-weight: 600;
                     }
                 }
@@ -1394,26 +1549,26 @@
             
             .density-result {
                 text-align: center;
-                padding: 12px;
-                border-radius: 8px;
-                margin-bottom: 8px;
+                padding: 0.75rem;
+                border-radius: 0.5rem;
+                margin-bottom: 0.5rem;
                 
                 .density-label {
                     display: block;
-                    font-size: 11px;
+                    font-size: 0.875rem;
                     color: rgba(255, 255, 255, 0.7);
-                    margin-bottom: 4px;
+                    margin-bottom: 0.25rem;
                 }
                 
                 .density-value {
                     display: block;
-                    font-size: 28px;
+                    font-size: 1.75rem;
                     font-weight: 700;
                     color: white;
                 }
                 
                 .density-unit {
-                    font-size: 13px;
+                    font-size: 1rem;
                     color: rgba(255, 255, 255, 0.7);
                 }
             }
@@ -1423,9 +1578,9 @@
                 
                 .context-tag {
                     display: inline-block;
-                    padding: 3px 10px;
-                    border-radius: 10px;
-                    font-size: 11px;
+                    padding: 0.1875rem 0.625rem;
+                    border-radius: 0.625rem;
+                    font-size: 0.875rem;
                     
                     &.low {
                         background: rgba(255, 152, 0, 0.2);
@@ -1447,41 +1602,41 @@
 
         .comparison-panel {
             background: rgba(0, 0, 0, 0.2);
-            padding: 12px;
+            padding: 0.75rem;
             
             .comparison-title {
-                font-size: 12px;
+                font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 10px;
+                margin-bottom: 0.625rem;
             }
             
             .bar-track {
                 position: relative;
-                height: 8px;
+                height: 0.5rem;
                 background: linear-gradient(to right, #ff9800, #4CAF50, #2196F3);
-                border-radius: 4px;
-                margin-bottom: 22px;
+                border-radius: 0.25rem;
+                margin-bottom: 1.375rem;
                 
                 .bar-marker {
                     position: absolute;
-                    top: -4px;
+                    top: -0.25rem;
                     transform: translateX(-50%);
                     
                     &::before {
                         content: '';
                         display: block;
-                        width: 14px;
-                        height: 14px;
+                        width: 0.875rem;
+                        height: 0.875rem;
                         border-radius: 50%;
-                        border: 2px solid white;
+                        border: 0.125rem solid white;
                     }
                     
                     .marker-label {
                         position: absolute;
-                        top: 18px;
+                        top: 1.125rem;
                         left: 50%;
                         transform: translateX(-50%);
-                        font-size: 9px;
+                        font-size: 0.5625rem;
                         white-space: nowrap;
                     }
                     
@@ -1491,7 +1646,7 @@
                     
                     &.current::before {
                         background: var(--marker-color, #4CAF50);
-                        box-shadow: 0 0 6px var(--marker-color, rgba(76, 175, 80, 0.6));
+                        box-shadow: 0 0 0.375rem var(--marker-color, rgba(76, 175, 80, 0.6));
                     }
                 }
             }
@@ -1499,37 +1654,37 @@
             .bar-labels {
                 display: flex;
                 justify-content: space-between;
-                font-size: 10px;
+                font-size: 0.625rem;
                 color: rgba(255, 255, 255, 0.5);
             }
             
             .comparison-diff {
-                margin-top: 8px;
+                margin-top: 0.5rem;
                 text-align: center;
-                font-size: 12px;
+                font-size: 0.875rem;
                 color: rgba(255, 255, 255, 0.8);
             }
         }
 
         .empty-state {
             text-align: center;
-            padding: 30px 20px;
+            padding: 1.875rem 1.25rem;
             background: rgba(0, 0, 0, 0.15);
             
             .empty-icon {
-                font-size: 40px;
-                margin-bottom: 10px;
+                font-size: 2.5rem;
+                margin-bottom: 0.625rem;
             }
             
             .empty-text {
                 color: rgba(255, 255, 255, 0.7);
-                font-size: 13px;
+                font-size: 1rem;
             }
         }
 
         .info-section {
-            padding: 12px;
-            font-size: 12px;
+            padding: 0.75rem;
+            font-size: 0.875rem;
             
             details {
                 summary {
@@ -1542,21 +1697,21 @@
                 }
                 
                 p {
-                    margin: 8px 0;
+                    margin: 0.5rem 0;
                     line-height: 1.4;
                     color: rgba(255, 255, 255, 0.8);
                     
                     &.note {
-                        font-size: 11px;
+                        font-size: 0.875rem;
                         color: rgba(255, 255, 255, 0.6);
                         font-style: italic;
                     }
                     
                     &.credit {
-                        margin-top: 12px;
-                        padding-top: 8px;
+                        margin-top: 0.75rem;
+                        padding-top: 0.5rem;
                         border-top: 1px solid rgba(255, 255, 255, 0.1);
-                        font-size: 11px;
+                        font-size: 0.875rem;
                         color: rgba(255, 255, 255, 0.6);
                         
                         a {
@@ -1574,11 +1729,11 @@
     }
 
     .mb-15 {
-        margin-bottom: 15px;
+        margin-bottom: 0.9375rem;
     }
 
     .rounded-box {
-        border-radius: 6px;
+        border-radius: 0.375rem;
     }
 
     .bg-secondary {
