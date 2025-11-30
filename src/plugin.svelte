@@ -1207,6 +1207,7 @@
                 trackingMode = false;
                 activePreset = 1;
                 saveTrackCenter(false);
+                saveActivePreset(1);
             }
         } catch {
             // ignore storage errors
