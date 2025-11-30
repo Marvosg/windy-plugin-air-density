@@ -190,7 +190,7 @@
                         on:mouseleave={() => hoveredDeletePreset = null}
                         title="Delete preset {presetNum}"
                     >
-                        🗑️
+                        🗑️ {presetNum}
                     </button>
                 </div>
             {/each}
@@ -211,24 +211,23 @@
             <div class="preset-buttons">
                 {#each [1, 2, 3, 4] as presetNum}
                     {@const preset = presetLocations[presetNum]}
-                    {@const pos = preset?.density ? getDensityPosition(preset.density) : 0}
-                    {@const bgColor = preset?.density ? getGradientBg(pos, 0.3) : null}
-                    <button 
-                        class="preset-btn" 
-                        class:active={!trackingMode && activePreset === presetNum}
-                        class:has-location={preset !== null}
-                        class:save-target={hoveredSavePreset === presetNum}
-                        class:delete-target={hoveredDeletePreset === presetNum}
-                        on:click={() => selectPreset(presetNum)}
-                        title={preset?.name || 'Empty preset'}
-                        style={bgColor ? `background: ${bgColor}` : ''}
-                    >
-                        {#if preset}
+                    {#if preset}
+                        {@const pos = preset.density ? getDensityPosition(preset.density) : 0}
+                        {@const bgColor = preset.density ? getGradientBg(pos, 0.3) : null}
+                        <button 
+                            class="preset-btn" 
+                            class:active={!trackingMode && activePreset === presetNum}
+                            class:save-target={hoveredSavePreset === presetNum}
+                            class:delete-target={hoveredDeletePreset === presetNum}
+                            on:click={() => selectPreset(presetNum)}
+                            title={preset.name || 'Location'}
+                            style={bgColor ? `background: ${bgColor}` : ''}
+                        >
                             <span class="preset-name">{preset.name || 'Location'}</span>
                             <span class="preset-density">{preset.density?.toFixed(4) || '—'}</span>
-                        {/if}
-                        <span class="preset-index">{presetNum}</span>
-                    </button>
+                            <span class="preset-index">{presetNum}</span>
+                        </button>
+                    {/if}
                 {/each}
             </div>
         </div>
@@ -332,6 +331,7 @@
     }
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
+    let moveInterval: ReturnType<typeof setInterval> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     let trackNowInterval: ReturnType<typeof setInterval> | null = null;
     let hoveredSavePreset: number | null = null;
@@ -922,16 +922,28 @@
     function onMapMove() {
         if (trackingMode) {
             updateCenterMarker();
+            
+            // Start interval to recalculate every 1 second while moving
+            if (!moveInterval) {
+                moveInterval = setInterval(() => {
+                    const center = map.getCenter();
+                    calculateDensity({ lat: center.lat, lon: center.lng }, true);
+                }, 1000);
+            }
         }
     }
 
     function onMapMoveEnd() {
         if (trackingMode) {
-            if (moveTimeout) clearTimeout(moveTimeout);
-            moveTimeout = setTimeout(() => {
-                const center = map.getCenter();
-                calculateDensity({ lat: center.lat, lon: center.lng });
-            }, 300);
+            // Stop the move interval
+            if (moveInterval) {
+                clearInterval(moveInterval);
+                moveInterval = null;
+            }
+            
+            // Calculate immediately
+            const center = map.getCenter();
+            calculateDensity({ lat: center.lat, lon: center.lng });
         }
     }
 
@@ -1111,6 +1123,7 @@
         removeCenterMarker();
         stopAutoRefresh();
         if (moveTimeout) clearTimeout(moveTimeout);
+        if (moveInterval) clearInterval(moveInterval);
         if (loadingTimeout) clearTimeout(loadingTimeout);
         if (presetsLoadingTimeout) clearTimeout(presetsLoadingTimeout);
         if (trackNowInterval) clearInterval(trackNowInterval);
