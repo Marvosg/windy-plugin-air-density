@@ -31,11 +31,7 @@
     <div class="settings-panel rounded-box mb-15">
         <div class="setting-row">
             <span class="label">Model:</span>
-            <span class="value">{displayModel}</span>
-        </div>
-        <div class="setting-row">
-            <span class="label">Level:</span>
-            <span class="value">{currentLevel}</span>
+            <span class="value">{displayModel}{#if isLoading}...{/if}</span>
         </div>
     </div>
 
@@ -138,8 +134,7 @@
                 Standard sea-level density is <strong>1.225 kg/m³</strong> at 15°C, 1013.25 hPa.
             </p>
             <p class="note">
-                <strong>Note:</strong> Data uses surface-level values. The "Level" setting 
-                affects display layers but forecast data is primarily surface-based.
+                Data uses surface-level values from the selected weather model.
             </p>
         </details>
     </div>
@@ -163,7 +158,7 @@
     const DENSITY_STANDARD = 1.225;
     const DENSITY_MIN = 0.9;
     const DENSITY_MAX = 1.5;
-    const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
+    const AUTO_REFRESH_INTERVAL = 60000;
 
     interface DensityResult {
         lat: number;
@@ -179,10 +174,9 @@
     let error: string | null = null;
     let result: DensityResult | null = null;
     let locationName: string | null = null;
-    let currentLevel = 'surface';
     let displayModel = 'ecmwf';
     let marker: L.Marker | null = null;
-    let crosshair: L.Marker | null = null;
+    let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -207,49 +201,36 @@
     
     const FORECAST_MODELS = [...GLOBAL_MODELS, ...REGIONAL_MODELS];
     
-    /**
-     * Check if a product is a forecast model
-     */
     function isForecastModel(product: string): boolean {
         return FORECAST_MODELS.includes(product);
     }
     
-    /**
-     * Get the model to use for fetching
-     */
     function getModelForFetch(): string {
+        const product = store.get('product') || 'ecmwf';
+        return isForecastModel(product) ? product : 'ecmwf';
+    }
+
+    function getDisplayModelName(): string {
         const product = store.get('product') || 'ecmwf';
         if (isForecastModel(product)) {
             return product;
         }
-        return 'ecmwf';
+        return `${product} → ecmwf`;
     }
 
     /**
-     * Update level display
-     */
-    function updateLevel() {
-        currentLevel = store.get('level') || 'surface';
-    }
-
-    /**
-     * Place or update the marker on the map (click mode only)
+     * Place or update the click marker
      */
     function updateMarker(lat: number, lon: number) {
-        if (!trackingMode) {
-            if (marker) {
-                marker.setLatLng([lat, lon]);
-            } else {
-                marker = L.marker([lat, lon], { 
-                    icon: markers.pulsatingIcon 
-                }).addTo(map);
-            }
+        if (marker) {
+            marker.setLatLng([lat, lon]);
+        } else {
+            marker = L.marker([lat, lon], { 
+                icon: markers.pulsatingIcon 
+            }).addTo(map);
         }
     }
 
-    /**
-     * Remove the marker
-     */
     function removeMarker() {
         if (marker) {
             marker.remove();
@@ -258,46 +239,31 @@
     }
 
     /**
-     * Create crosshair icon
+     * Update center marker (crosshair) for tracking mode
+     * Using L.circleMarker which is simpler and more reliable
      */
-    function createCrosshairIcon(): L.DivIcon {
-        return L.divIcon({
-            className: 'density-crosshair',
-            html: `<div class="crosshair-inner">
-                <div class="crosshair-h"></div>
-                <div class="crosshair-v"></div>
-                <div class="crosshair-dot"></div>
-            </div>`,
-            iconSize: [50, 50],
-            iconAnchor: [25, 25]
-        });
-    }
-
-    /**
-     * Update crosshair position
-     */
-    function updateCrosshair() {
-        if (!trackingMode) return;
-        
+    function updateCenterMarker() {
         const center = map.getCenter();
-        if (crosshair) {
-            crosshair.setLatLng(center);
+        
+        if (centerMarker) {
+            centerMarker.setLatLng(center);
         } else {
-            crosshair = L.marker(center, {
-                icon: createCrosshairIcon(),
-                interactive: false,
-                zIndexOffset: 1000
+            // Create a simple circle marker as crosshair
+            centerMarker = L.circleMarker(center, {
+                radius: 8,
+                color: '#ff6600',
+                weight: 3,
+                fillColor: '#ff6600',
+                fillOpacity: 0.3,
+                className: 'density-center-marker'
             }).addTo(map);
         }
     }
 
-    /**
-     * Remove crosshair
-     */
-    function removeCrosshair() {
-        if (crosshair) {
-            crosshair.remove();
-            crosshair = null;
+    function removeCenterMarker() {
+        if (centerMarker) {
+            centerMarker.remove();
+            centerMarker = null;
         }
     }
 
@@ -313,48 +279,40 @@
         error = null;
         currentLocation = latLon;
         
-        // Update marker/crosshair position
+        // Update visual marker
         if (trackingMode) {
-            updateCrosshair();
+            updateCenterMarker();
         } else {
             updateMarker(lat, lon);
         }
         
-        // Get location name
+        // Get location name async
         reverseName.get(latLon).then(({ name: locName }) => {
             locationName = locName;
         }).catch(() => {
             locationName = null;
         });
 
-        // Determine which model to use
+        // Determine model and update display IMMEDIATELY
         const requestedModel = getModelForFetch();
+        displayModel = getDisplayModelName();
+        
         let usedModel = requestedModel;
         let response: HttpPayload<WeatherDataPayload<DataHash>>;
 
         try {
-            // Try the requested model first
             try {
                 response = await getPointForecastData(requestedModel, latLon, name);
             } catch (fetchErr) {
-                // If regional model fails, fall back to ecmwf
+                // Fallback to ecmwf for regional model failures
                 if (requestedModel !== 'ecmwf' && !GLOBAL_MODELS.includes(requestedModel)) {
-                    console.log(`[Air Density] ${requestedModel} failed for this location, using ecmwf`);
+                    console.log(`[Air Density] ${requestedModel} failed, falling back to ecmwf`);
                     usedModel = 'ecmwf';
+                    displayModel = `${requestedModel} → ecmwf`;
                     response = await getPointForecastData('ecmwf', latLon, name);
                 } else {
                     throw fetchErr;
                 }
-            }
-            
-            // Update display model AFTER successful fetch
-            const storeProduct = store.get('product') || 'ecmwf';
-            if (!isForecastModel(storeProduct)) {
-                displayModel = `${storeProduct} → ${usedModel}`;
-            } else if (usedModel !== requestedModel) {
-                displayModel = `${requestedModel} → ${usedModel}`;
-            } else {
-                displayModel = usedModel;
             }
             
             if (!response.data || !response.data.data) {
@@ -396,19 +354,11 @@
                 throw new Error('Pressure data not available');
             }
 
-            // Convert temperature from Kelvin to Celsius if needed
-            let tempCelsius = tempValue;
-            if (tempValue > 200) {
-                tempCelsius = tempValue - 273.15;
-            }
-
-            // Convert pressure to hPa if needed
-            let pressureHPa = pressureValue;
-            if (pressureValue > 10000) {
-                pressureHPa = pressureValue / 100;
-            }
-
+            // Convert units
+            let tempCelsius = tempValue > 200 ? tempValue - 273.15 : tempValue;
+            let pressureHPa = pressureValue > 10000 ? pressureValue / 100 : pressureValue;
             const humidity = humidityValue ?? 50;
+            
             const density = calculateAirDensity(tempCelsius, pressureHPa, humidity);
 
             result = {
@@ -423,7 +373,6 @@
         } catch (err) {
             console.error('Error calculating air density:', err);
             error = err instanceof Error ? err.message : 'Failed to fetch data';
-            // Don't clear result on silent refresh errors
             if (!silent) {
                 result = null;
             }
@@ -432,27 +381,18 @@
         }
     }
 
-    /**
-     * Handle map click (click mode only)
-     */
     function onMapClick(e: L.LeafletMouseEvent) {
         if (!trackingMode) {
             calculateDensity({ lat: e.latlng.lat, lon: e.latlng.lng });
         }
     }
 
-    /**
-     * Handle map move (tracking mode - update crosshair visually)
-     */
     function onMapMove() {
         if (trackingMode) {
-            updateCrosshair();
+            updateCenterMarker();
         }
     }
 
-    /**
-     * Handle map move end - recalculate
-     */
     function onMapMoveEnd() {
         if (trackingMode) {
             if (moveTimeout) clearTimeout(moveTimeout);
@@ -463,24 +403,20 @@
         }
     }
 
-    /**
-     * Handle store changes - recalculate
-     */
     function onStoreChange() {
-        updateLevel();
+        // Update model display immediately
+        displayModel = getDisplayModelName();
+        
+        // Recalculate if we have a location
         if (currentLocation && !isLoading) {
             calculateDensity(currentLocation);
         }
     }
 
-    /**
-     * Auto-refresh timer
-     */
     function startAutoRefresh() {
         stopAutoRefresh();
         refreshInterval = setInterval(() => {
             if (currentLocation && !isLoading) {
-                console.log('[Air Density] Auto-refresh');
                 calculateDensity(currentLocation, true);
             }
         }, AUTO_REFRESH_INTERVAL);
@@ -493,39 +429,33 @@
         }
     }
 
-    /**
-     * Set tracking mode
-     */
     function setTrackingMode(enabled: boolean) {
         trackingMode = enabled;
         
         if (enabled) {
             removeMarker();
-            updateCrosshair();
+            updateCenterMarker();
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         } else {
-            removeCrosshair();
+            removeCenterMarker();
         }
     }
 
-    // Plugin lifecycle
     export const onopen = (params?: LatLon) => {
-        updateLevel();
+        displayModel = getDisplayModelName();
         
-        // Register map events
         map.on('click', onMapClick);
         map.on('move', onMapMove);
         map.on('moveend', onMapMoveEnd);
         
-        // Start auto-refresh
         startAutoRefresh();
         
         if (params && params.lat !== undefined && params.lon !== undefined) {
             trackingMode = false;
             calculateDensity(params);
         } else if (trackingMode) {
-            updateCrosshair();
+            updateCenterMarker();
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         }
@@ -533,9 +463,8 @@
 
     onMount(() => {
         store.on('product', onStoreChange);
-        store.on('level', onStoreChange);
         store.on('timestamp', onStoreChange);
-        updateLevel();
+        displayModel = getDisplayModelName();
     });
 
     onDestroy(() => {
@@ -543,10 +472,9 @@
         map.off('move', onMapMove);
         map.off('moveend', onMapMoveEnd);
         store.off('product', onStoreChange);
-        store.off('level', onStoreChange);
         store.off('timestamp', onStoreChange);
         removeMarker();
-        removeCrosshair();
+        removeCenterMarker();
         stopAutoRefresh();
         if (moveTimeout) clearTimeout(moveTimeout);
     });
@@ -584,8 +512,6 @@
         .settings-panel {
             background: rgba(0, 0, 0, 0.2);
             padding: 10px 15px;
-            display: flex;
-            gap: 20px;
             
             .setting-row {
                 display: flex;
@@ -840,49 +766,6 @@
                     }
                 }
             }
-        }
-    }
-
-    // Crosshair styles
-    :global(.density-crosshair) {
-        pointer-events: none !important;
-        
-        .crosshair-inner {
-            position: relative;
-            width: 50px;
-            height: 50px;
-        }
-        
-        .crosshair-h, .crosshair-v {
-            position: absolute;
-            background: #ff6600;
-            box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
-        }
-        
-        .crosshair-h {
-            width: 50px;
-            height: 2px;
-            top: 24px;
-            left: 0;
-        }
-        
-        .crosshair-v {
-            width: 2px;
-            height: 50px;
-            top: 0;
-            left: 24px;
-        }
-        
-        .crosshair-dot {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background: #ff6600;
-            border: 2px solid white;
-            border-radius: 50%;
-            top: 18px;
-            left: 18px;
-            box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
         }
     }
 
