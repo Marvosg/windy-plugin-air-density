@@ -207,7 +207,7 @@
             <button
                 class="mode-btn"
                 class:active={!trackingMode && activePreset === null}
-                on:click={() => { activePreset = null; setTrackingMode(false); }}
+                on:click={() => { activePreset = null; saveActivePreset(null); setTrackingMode(false); }}
             >
                 📍 Pick from Map
             </button>
@@ -313,6 +313,29 @@
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
+
+    // ---------- Active preset persistence ----------
+    function loadActivePreset(): number | null {
+        try {
+            const v = localStorage.getItem(STORAGE_KEY_ACTIVE_PRESET);
+            if (v === null) return null;
+            const n = Number(v);
+            return Number.isFinite(n) && n >= 1 && n <= 4 ? n : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function saveActivePreset(num: number | null) {
+        try {
+            if (num === null) {
+                localStorage.removeItem(STORAGE_KEY_ACTIVE_PRESET);
+            } else {
+                localStorage.setItem(STORAGE_KEY_ACTIVE_PRESET, String(num));
+            }
+        } catch { /* ignore */ }
+    }
+
     function loadTrackCenter(): boolean {
         try {
             return localStorage.getItem(STORAGE_KEY_TRACK_CENTER) !== 'false';
@@ -374,6 +397,7 @@
     const STORAGE_KEY_PRESETS = 'airDensity_presets';
     // Remember whether we are following map center (true) or picking manually (false)
     const STORAGE_KEY_TRACK_CENTER = 'airDensity_trackCenter';
+    const STORAGE_KEY_ACTIVE_PRESET = 'airDensity_activePreset';
     // Key used to mark that the plugin has completed its first-launch initialization
     const STORAGE_KEY_INITIALIZED = 'airDensity_initialized';
     
@@ -448,9 +472,11 @@
     
     function loadTrackNow(): boolean {
         try {
-            return localStorage.getItem(STORAGE_KEY_TRACK_NOW) === 'true';
+            const stored = localStorage.getItem(STORAGE_KEY_TRACK_NOW);
+            // Enable by default if not stored yet
+            return stored === null ? true : stored === 'true';
         } catch {
-            return false;
+            return true;
         }
     }
     
@@ -541,6 +567,7 @@
         trackingMode = false;
         saveTrackCenter(false);
         activePreset = num;
+        saveActivePreset(num);
         removeCenterMarker();
         
         map.setView([preset.lat, preset.lon], map.getZoom());
@@ -950,6 +977,7 @@
         if (!trackingMode) {
             // Deselect preset when clicking on map (different location)
             activePreset = null;
+            saveActivePreset(null);
             calculateDensity({ lat: e.latlng.lat, lon: e.latlng.lng });
         }
     }
@@ -1002,6 +1030,26 @@
     }
 
     function startAutoRefresh() {
+        scheduleNextMinuteRefresh();
+    }
+
+    /**
+     * Trigger an immediate density refresh (used when tab regains focus)
+     */
+    function refreshNow() {
+        if (isLoading) return;
+        if (trackNow) {
+            syncTimestampToNow();
+        }
+
+        if (currentLocation) {
+            calculateDensity(currentLocation, true);
+        } else if (trackingMode) {
+            const center = map.getCenter();
+            calculateDensity({ lat: center.lat, lon: center.lng }, true);
+        }
+        updatePresetDensities();
+        // Restart auto-refresh timer from the upcoming minute boundary
         scheduleNextMinuteRefresh();
     }
 
@@ -1091,6 +1139,9 @@
     function setTrackingMode(enabled: boolean) {
         trackingMode = enabled;
         saveTrackCenter(enabled);
+        if (enabled) {
+            saveActivePreset(null);
+        }
         
         if (enabled) {
             activePreset = null;
@@ -1100,6 +1151,13 @@
             calculateDensity({ lat: center.lat, lon: center.lng });
         } else {
             removeCenterMarker();
+        }
+    }
+
+    // Handler to refresh when tab becomes visible
+    function onVisibilityChange() {
+        if (document.visibilityState === 'visible') {
+            refreshNow();
         }
     }
 
@@ -1113,6 +1171,10 @@
         map.on('click', onMapClick);
         map.on('move', onMapMove);
         map.on('moveend', onMapMoveEnd);
+
+        // Refresh when page/tab becomes visible again
+        window.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('focus', refreshNow);
         
         startAutoRefresh();
         
@@ -1154,6 +1216,12 @@
 
         // Immediately fetch densities for existing presets (including default LCM)
         updatePresetDensities();
+
+        // Restore previously selected preset if any
+        const storedActive = loadActivePreset();
+        if (storedActive && presetLocations[storedActive]) {
+            selectPreset(storedActive);
+        }
         
         // Restore track now setting
         trackNow = loadTrackNow();
@@ -1193,6 +1261,9 @@
         if (loadingTimeout) clearTimeout(loadingTimeout);
         if (presetsLoadingTimeout) clearTimeout(presetsLoadingTimeout);
         if (trackNowInterval) clearInterval(trackNowInterval);
+
+        window.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('focus', refreshNow);
     });
 </script>
 
