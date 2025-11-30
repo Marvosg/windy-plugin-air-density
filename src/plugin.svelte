@@ -180,12 +180,14 @@
                         on:mouseleave={() => hoveredSavePreset = null}
                         title="Save current location to preset {presetNum}"
                     >
-                        💾{presetNum}
+                        💾 {presetNum}
                     </button>
                     <button 
                         class="delete-preset-btn"
                         disabled={presetLocations[presetNum] === null}
                         on:click={() => deletePreset(presetNum)}
+                        on:mouseenter={() => hoveredDeletePreset = presetNum}
+                        on:mouseleave={() => hoveredDeletePreset = null}
                         title="Delete preset {presetNum}"
                     >
                         🗑️
@@ -216,6 +218,7 @@
                         class:active={!trackingMode && activePreset === presetNum}
                         class:has-location={preset !== null}
                         class:save-target={hoveredSavePreset === presetNum}
+                        class:delete-target={hoveredDeletePreset === presetNum}
                         on:click={() => selectPreset(presetNum)}
                         title={preset?.name || 'Empty preset'}
                         style={bgColor ? `background: ${bgColor}` : ''}
@@ -223,8 +226,6 @@
                         {#if preset}
                             <span class="preset-name">{preset.name || 'Location'}</span>
                             <span class="preset-density">{preset.density?.toFixed(4) || '—'}</span>
-                        {:else}
-                            <span class="preset-empty">{presetNum}</span>
                         {/if}
                         <span class="preset-index">{presetNum}</span>
                     </button>
@@ -334,6 +335,7 @@
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     let trackNowInterval: ReturnType<typeof setInterval> | null = null;
     let hoveredSavePreset: number | null = null;
+    let hoveredDeletePreset: number | null = null;
     
     // Available models for quick switching
     const QUICK_MODELS = [
@@ -1363,7 +1365,12 @@
                     }
                     
                     &.save-target {
-                        outline: 3px solid #ff3333;
+                        outline: 3px solid #81c784;
+                        outline-offset: -1px;
+                    }
+                    
+                    &.delete-target {
+                        outline: 3px solid #ff5252;
                         outline-offset: -1px;
                     }
                     
@@ -1381,12 +1388,6 @@
                         font-size: 1rem;
                         font-weight: 700;
                         color: white;
-                    }
-                    
-                    .preset-empty {
-                        font-size: 1rem;
-                        font-weight: 600;
-                        opacity: 0.4;
                     }
                     
                     .preset-index {
