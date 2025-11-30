@@ -81,7 +81,7 @@
                     <span class="updated-at">{lastUpdated}</span>
                     <label class="track-now-label">
                         <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
-                        <span>Track now</span>
+                        <span>Current time</span>
                     </label>
                 </div>
             </div>
@@ -127,7 +127,7 @@
                         <span class="marker-label">Std</span>
                     </div>
                     <div class="bar-marker current" style="left: {currentPosition}%; --marker-color: {getGradientColor(currentPosition)}">
-                        <span class="marker-label">Now</span>
+                        <span class="marker-label">{isCurrentTime ? 'Now' : 'Val'}</span>
                     </div>
                 </div>
                 <div class="bar-labels">
@@ -211,7 +211,11 @@
     let usedModel = 'ecmwf';
     let requestedForResult = 'ecmwf'; // What was requested for the current result (to detect true fallbacks)
     let lastUpdated: string = '';
+    let forecastTimestamp: number = Date.now();
     let requestCounter = 0; // Prevents stale data from race conditions
+    
+    // Check if forecast time is within 5 minutes of actual current time
+    $: isCurrentTime = Math.abs(forecastTimestamp - Date.now()) < 300000;
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
@@ -232,7 +236,6 @@
         { id: 'ukv', label: 'UKV' },
         { id: 'czeAladin', label: 'ALADIN' },
         { id: 'nems', label: 'NEMS' },
-        { id: 'hrrr', label: 'HRRR' },
     ];
     const STORAGE_KEY = 'airDensity_lastModel';
     
@@ -508,6 +511,7 @@
             };
             
             lastUpdated = formatForecastTime(forecastTs);
+            forecastTimestamp = forecastTs;
 
         } catch (err) {
             // Only update error state if this is still the latest request
