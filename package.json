@@ -16,6 +16,7 @@
         "example06": "CONFIG=example06 rollup -w -c",
         "example07": "CONFIG=example07 rollup -w -c",
         "build:all-examples": "for number in 01 02 03 04 05 06; do CONFIG=example$number SERVE=false rollup -c; done",
+        "publish-plugin": "npm run build && npx windy-plugin-devtools publish",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "repository": {

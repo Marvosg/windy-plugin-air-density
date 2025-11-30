@@ -32,14 +32,14 @@
         <div class="model-info">
             <div class="model-row">
                 <span class="model-label">Selected:</span>
-                <span class="model-value">{currentProduct}</span>
+                <span class="model-value">{currentProduct.toUpperCase()}</span>
             </div>
             {#if result}
                 <div class="model-row">
                     <span class="model-label">Used:</span>
-                    <span class="model-value" class:fallback={usedModel !== currentProduct}>
-                        {usedModel}
-                        {#if usedModel !== currentProduct}
+                    <span class="model-value" class:fallback={usedModel !== requestedForResult}>
+                        {usedModel.toUpperCase()}
+                        {#if usedModel !== requestedForResult}
                             <span class="fallback-note">(fallback)</span>
                         {/if}
                     </span>
@@ -209,9 +209,10 @@
     let locationName: string | null = null;
     let currentProduct = 'ecmwf';
     let usedModel = 'ecmwf';
+    let requestedForResult = 'ecmwf'; // What was requested for the current result (to detect true fallbacks)
     let lastUpdated: string = '';
     let requestCounter = 0; // Prevents stale data from race conditions
-    let marker: L.Marker | null = null;
+    let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let trackNow = false;
@@ -329,15 +330,22 @@
         return isForecastModel(product) ? product : 'ecmwf';
     }
 
+    const MARKER_RADIUS = 12;
+    
     /**
-     * Place or update the click marker
+     * Place or update the click marker (circle marker for consistency)
      */
     function updateMarker(lat: number, lon: number) {
         if (marker) {
             marker.setLatLng([lat, lon]);
         } else {
-            marker = L.marker([lat, lon], { 
-                icon: markers.pulsatingIcon 
+            marker = L.circleMarker([lat, lon], {
+                radius: MARKER_RADIUS,
+                color: '#ff6600',
+                weight: 3,
+                fillColor: '#ff6600',
+                fillOpacity: 0.3,
+                className: 'density-click-marker'
             }).addTo(map);
         }
     }
@@ -361,7 +369,7 @@
         } else {
             // Create a simple circle marker as crosshair
             centerMarker = L.circleMarker(center, {
-                radius: 16,
+                radius: MARKER_RADIUS,
                 color: '#ff6600',
                 weight: 3,
                 fillColor: '#ff6600',
@@ -488,6 +496,7 @@
                 return; // Abort - a newer request has been made
             }
 
+            requestedForResult = requestedModel;
             usedModel = actualUsedModel;
             result = {
                 lat,
