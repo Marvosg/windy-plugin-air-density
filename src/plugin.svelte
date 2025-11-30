@@ -351,6 +351,8 @@
     const STORAGE_KEY = 'airDensity_lastModel';
     const STORAGE_KEY_TRACK_NOW = 'airDensity_trackNow';
     const STORAGE_KEY_PRESETS = 'airDensity_presets';
+    // Key used to mark that the plugin has completed its first-launch initialization
+    const STORAGE_KEY_INITIALIZED = 'airDensity_initialized';
     
     interface PresetLocation {
         lat: number;
@@ -1086,7 +1088,26 @@
             store.set('product', lastModel);
         }
         
-        // Load saved preset locations
+        // Ensure default preset is created on first launch
+        try {
+            if (!localStorage.getItem(STORAGE_KEY_INITIALIZED)) {
+                // Save Maribor preset as first slot (46.4825°, 15.6878°)
+                const defaultPresets = {
+                    1: {
+                        lat: 46.4825,
+                        lon: 15.6878,
+                        name: 'LCM',
+                        density: null,
+                    },
+                    2: null,
+                    3: null,
+                    4: null,
+                } as { [key: number]: PresetLocation | null };
+                localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(defaultPresets));
+                localStorage.setItem(STORAGE_KEY_INITIALIZED, 'true');
+            }
+        } catch {/* ignore */}
+
         presetLocations = loadPresets();
         
         // Restore track now setting
