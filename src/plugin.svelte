@@ -27,22 +27,16 @@
         </button>
     </div>
 
-    <!-- Current Settings -->
+    <!-- Model Selection -->
     <div class="settings-panel rounded-box mb-15">
-        <div class="setting-row">
-            <label class="track-now-label">
-                <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
-                <span>Track current time</span>
-            </label>
-        </div>
         <div class="model-chips">
             {#each QUICK_MODELS as model}
                 <button 
                     class="model-chip" 
-                    class:active={currentProduct === model}
-                    on:click={() => selectModel(model)}
+                    class:active={currentProduct === model.id}
+                    on:click={() => selectModel(model.id)}
                 >
-                    {model}
+                    {model.label}
                 </button>
             {/each}
         </div>
@@ -66,7 +60,13 @@
                     <span class="location-name">{locationName || 'Location'}</span>
                     <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
                 </div>
-                <span class="updated-at">{lastUpdated}</span>
+                <div class="time-info">
+                    <span class="updated-at">{lastUpdated}</span>
+                    <label class="track-now-label">
+                        <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
+                        <span>Track now</span>
+                    </label>
+                </div>
             </div>
             
             <div class="result-grid">
@@ -109,7 +109,7 @@
                     <div class="bar-marker standard" style="left: {standardPosition}%">
                         <span class="marker-label">Std</span>
                     </div>
-                    <div class="bar-marker current" style="left: {currentPosition}%">
+                    <div class="bar-marker current" style="left: {currentPosition}%; --marker-color: {getGradientColor(currentPosition)}">
                         <span class="marker-label">Now</span>
                     </div>
                 </div>
@@ -146,6 +146,10 @@
             </p>
             <p class="note">
                 Data uses surface-level values from the selected weather model.
+            </p>
+            <p class="credit">
+                Made by Mare.<br>
+                <a href="mailto:lenient.fires_9q@icloud.com">lenient.fires_9q@icloud.com</a>
             </p>
         </details>
     </div>
@@ -200,8 +204,39 @@
     let trackNowInterval: ReturnType<typeof setInterval> | null = null;
     
     // Available models for quick switching
-    const QUICK_MODELS = ['ecmwf', 'gfs', 'icon', 'iconEu', 'czeAladin', 'hrrr'];
+    const QUICK_MODELS = [
+        { id: 'ecmwf', label: 'ECMWF' },
+        { id: 'gfs', label: 'GFS' },
+        { id: 'icon', label: 'ICON' },
+        { id: 'iconEu', label: 'ICON-EU' },
+        { id: 'iconD2', label: 'ICON-D2' },
+        { id: 'czeAladin', label: 'ALADIN' },
+        { id: 'hrrr', label: 'HRRR' },
+        { id: 'namConus', label: 'NAM' },
+    ];
     const STORAGE_KEY = 'airDensity_lastModel';
+    
+    // Interpolate color along the gradient based on position (0-100)
+    function getGradientColor(position: number): string {
+        // Gradient: #ff9800 (0%) -> #4CAF50 (54%) -> #2196F3 (100%)
+        const p = Math.max(0, Math.min(100, position)) / 100;
+        
+        if (p <= 0.54) {
+            // Orange to green
+            const t = p / 0.54;
+            const r = Math.round(255 * (1 - t) + 76 * t);
+            const g = Math.round(152 * (1 - t) + 175 * t);
+            const b = Math.round(0 * (1 - t) + 80 * t);
+            return `rgb(${r}, ${g}, ${b})`;
+        } else {
+            // Green to blue
+            const t = (p - 0.54) / 0.46;
+            const r = Math.round(76 * (1 - t) + 33 * t);
+            const g = Math.round(175 * (1 - t) + 150 * t);
+            const b = Math.round(80 * (1 - t) + 243 * t);
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+    }
     
     function loadLastModel(): string {
         try {
@@ -644,40 +679,6 @@
             background: rgba(0, 0, 0, 0.2);
             padding: 10px 15px;
             
-            .setting-row {
-                display: flex;
-                gap: 8px;
-                margin-bottom: 10px;
-                
-                .label {
-                    color: rgba(255, 255, 255, 0.6);
-                }
-                
-                .value {
-                    font-weight: 500;
-                }
-                
-                .track-now-label {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    cursor: pointer;
-                    font-size: 12px;
-                    color: rgba(255, 255, 255, 0.7);
-                    
-                    input[type="checkbox"] {
-                        accent-color: #ff6600;
-                        width: 14px;
-                        height: 14px;
-                        cursor: pointer;
-                    }
-                    
-                    &:hover {
-                        color: white;
-                    }
-                }
-            }
-            
             .model-chips {
                 display: flex;
                 flex-wrap: wrap;
@@ -777,9 +778,36 @@
                     color: rgba(255, 255, 255, 0.5);
                 }
                 
+                .time-info {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-end;
+                    gap: 4px;
+                }
+                
                 .updated-at {
                     font-size: 11px;
                     color: rgba(255, 255, 255, 0.5);
+                }
+                
+                .track-now-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    cursor: pointer;
+                    font-size: 10px;
+                    color: rgba(255, 255, 255, 0.5);
+                    
+                    input[type="checkbox"] {
+                        accent-color: #ff6600;
+                        width: 12px;
+                        height: 12px;
+                        cursor: pointer;
+                    }
+                    
+                    &:hover {
+                        color: rgba(255, 255, 255, 0.8);
+                    }
                 }
             }
             
@@ -905,12 +933,12 @@
                     }
                     
                     &.standard::before {
-                        background: rgba(255, 255, 255, 0.5);
+                        background: rgba(255, 255, 255, 0.8);
                     }
                     
                     &.current::before {
-                        background: #4CAF50;
-                        box-shadow: 0 0 6px rgba(76, 175, 80, 0.6);
+                        background: var(--marker-color, #4CAF50);
+                        box-shadow: 0 0 6px var(--marker-color, rgba(76, 175, 80, 0.6));
                     }
                 }
             }
@@ -969,6 +997,23 @@
                         font-size: 11px;
                         color: rgba(255, 255, 255, 0.6);
                         font-style: italic;
+                    }
+                    
+                    &.credit {
+                        margin-top: 12px;
+                        padding-top: 8px;
+                        border-top: 1px solid rgba(255, 255, 255, 0.1);
+                        font-size: 11px;
+                        color: rgba(255, 255, 255, 0.6);
+                        
+                        a {
+                            color: #ff6600;
+                            text-decoration: none;
+                            
+                            &:hover {
+                                text-decoration: underline;
+                            }
+                        }
                     }
                 }
             }
