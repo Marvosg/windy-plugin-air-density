@@ -35,14 +35,6 @@
         </div>
     </div>
 
-    <!-- Loading State -->
-    {#if isLoading}
-        <div class="loading-panel rounded-box mb-15">
-            <div class="spinner"></div>
-            <span>Loading...</span>
-        </div>
-    {/if}
-
     <!-- Error State -->
     {#if error}
         <div class="error-box mb-15">
@@ -51,11 +43,19 @@
     {/if}
 
     <!-- Results -->
-    {#if result && !isLoading}
-        <div class="result-panel rounded-box mb-15">
+    {#if result}
+        <div class="result-panel rounded-box mb-15" class:is-loading={isLoading}>
+            {#if isLoading}
+                <div class="loading-overlay">
+                    <div class="spinner"></div>
+                </div>
+            {/if}
             <div class="result-header">
-                <span class="location-name">{locationName || 'Location'}</span>
-                <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
+                <div class="location-info">
+                    <span class="location-name">{locationName || 'Location'}</span>
+                    <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
+                </div>
+                <span class="updated-at">{lastUpdated}</span>
             </div>
             
             <div class="result-grid">
@@ -81,9 +81,9 @@
 
             <div class="density-context">
                 {#if result.density < 1.1}
-                    <span class="context-tag low">Low (warm/humid/high alt)</span>
+                    <span class="context-tag low">Low (warm/low pressure)</span>
                 {:else if result.density > 1.3}
-                    <span class="context-tag high">High (cold/dry/low alt)</span>
+                    <span class="context-tag high">High (cold/high pressure)</span>
                 {:else}
                     <span class="context-tag normal">Normal (~1.225)</span>
                 {/if}
@@ -175,12 +175,17 @@
     let result: DensityResult | null = null;
     let locationName: string | null = null;
     let displayModel = 'ecmwf';
+    let lastUpdated: string = '';
     let marker: L.Marker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshInterval: ReturnType<typeof setInterval> | null = null;
+    
+    function formatTime(date: Date): string {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
 
     // Computed positions for comparison bar
     $: standardPosition = ((DENSITY_STANDARD - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100;
@@ -250,7 +255,7 @@
         } else {
             // Create a simple circle marker as crosshair
             centerMarker = L.circleMarker(center, {
-                radius: 8,
+                radius: 16,
                 color: '#ff6600',
                 weight: 3,
                 fillColor: '#ff6600',
@@ -369,6 +374,8 @@
                 humidity,
                 density
             };
+            
+            lastUpdated = formatTime(new Date());
 
         } catch (err) {
             console.error('Error calculating air density:', err);
@@ -527,24 +534,6 @@
             }
         }
 
-        .loading-panel {
-            background: rgba(255, 165, 0, 0.15);
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            
-            .spinner {
-                width: 18px;
-                height: 18px;
-                border: 2px solid rgba(255, 255, 255, 0.3);
-                border-top-color: #ff6600;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-            }
-        }
-
         .error-box {
             background: rgba(255, 0, 0, 0.15);
             border: 1px solid rgba(255, 0, 0, 0.3);
@@ -557,14 +546,48 @@
         .result-panel {
             background: rgba(0, 0, 0, 0.25);
             padding: 15px;
+            position: relative;
+            
+            &.is-loading {
+                opacity: 0.7;
+            }
+            
+            .loading-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.3);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 6px;
+                z-index: 10;
+                
+                .spinner {
+                    width: 24px;
+                    height: 24px;
+                    border: 3px solid rgba(255, 255, 255, 0.3);
+                    border-top-color: #ff6600;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+            }
             
             .result-header {
                 display: flex;
                 justify-content: space-between;
-                align-items: baseline;
+                align-items: flex-start;
                 margin-bottom: 12px;
                 padding-bottom: 8px;
                 border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                
+                .location-info {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 2px;
+                }
                 
                 .location-name {
                     font-weight: 600;
@@ -573,7 +596,12 @@
                 
                 .coordinates {
                     font-size: 11px;
-                    color: rgba(255, 255, 255, 0.6);
+                    color: rgba(255, 255, 255, 0.5);
+                }
+                
+                .updated-at {
+                    font-size: 11px;
+                    color: rgba(255, 255, 255, 0.5);
                 }
             }
             
