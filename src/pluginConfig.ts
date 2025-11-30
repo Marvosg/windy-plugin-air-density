@@ -2,7 +2,7 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
     name: 'windy-plugin-air-density',
-    version: '1.3.8',
+    version: '1.3.9',
     icon: '🪂',
     title: 'Air Density',
     description: 'Displays air density calculated from temperature, pressure, and humidity.',

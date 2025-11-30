@@ -73,98 +73,35 @@
         </div>
     </div>
 
-    <!-- Error State -->
-    {#if error}
-        <div class="error-box mb-15">
-            {error}
-        </div>
-    {/if}
-
-    <!-- Results -->
-    {#if result}
-        <div class="result-panel rounded-box mb-15">
-            <div class="loading-overlay" class:visible={showLoadingOverlay}>
-                <div class="spinner"></div>
-            </div>
-            <div class="result-header">
-                <div class="location-info">
-                    <span class="location-name">{locationName || 'Location'}</span>
-                    <span class="coordinates">{result.lat.toFixed(4)}°, {result.lon.toFixed(4)}°</span>
-                </div>
-                <div class="time-info">
-                    <span class="updated-at">{lastUpdated}</span>
-                    <label class="track-now-label">
-                        <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
-                        <span>Now</span>
-                    </label>
-                </div>
-            </div>
-            
-            <div class="result-grid">
-                <div class="result-item">
-                    <span class="result-label">Temperature</span>
-                    <span class="result-value">{result.temp.toFixed(1)}°C</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Pressure</span>
-                    <span class="result-value">{result.pressure.toFixed(1)} hPa</span>
-                </div>
-                <div class="result-item">
-                    <span class="result-label">Humidity</span>
-                    <span class="result-value">{result.humidity.toFixed(0)}%</span>
-                </div>
-            </div>
-
-            <div class="density-result" style="background: {getGradientBg(getDensityPosition(result.density), 0.25)}">
-                <span class="density-label">Air Density</span>
-                <span class="density-value">{result.density.toFixed(4)}</span>
-                <span class="density-unit">kg/m³</span>
-            </div>
-
-            <div class="density-context">
-                {#if result.density < 1.1}
-                    <span class="context-tag low">Low (warm/low pressure)</span>
-                {:else if result.density > 1.3}
-                    <span class="context-tag high">High (cold/high pressure)</span>
-                {:else}
-                    <span class="context-tag normal">Normal (~1.225)</span>
-                {/if}
-            </div>
+    <!-- Density Result Card -->
+    {#if !isLoading}
+        <div class="density-result" style="background: {result ? getGradientBg(getDensityPosition(result.density), 0.25) : 'rgba(255,255,255,0.05)'}">
+            <span class="density-label">Air Density</span>
+            <span class="density-value">{result ? result.density.toFixed(4) : '—'}</span>
+            <span class="density-unit">kg/m³</span>
         </div>
 
         <!-- Comparison -->
-        <div class="comparison-panel rounded-box mb-15">
-            <div class="comparison-title">vs Standard (1.225 kg/m³)</div>
-            <div class="comparison-bar">
-                <div class="bar-track">
-                    <div class="bar-marker standard" style="left: {standardPosition}%">
-                        <span class="marker-label">Std</span>
-                    </div>
-                    <div class="bar-marker current" style="left: {currentPosition}%; --marker-color: {getGradientColor(currentPosition)}">
-                        <span class="marker-label">{isCurrentTime ? 'Now' : 'Val'}</span>
-                    </div>
-                </div>
-                <div class="bar-labels">
-                    <span>0.9</span>
-                    <span>1.225</span>
-                    <span>1.5</span>
-                </div>
+        {#if result}
+            <div class="density-context">
+                {#if result.density < 1.1}
+                    Lower than typical sea-level air density.
+                {:else if result.density > 1.3}
+                    Higher than typical sea-level air density.
+                {:else}
+                    Close to standard sea-level density.
+                {/if}
             </div>
             <div class="comparison-diff">
                 {((result.density - DENSITY_STANDARD) / DENSITY_STANDARD * 100).toFixed(1)}% 
                 {result.density > DENSITY_STANDARD ? 'above' : 'below'} standard
             </div>
-        </div>
+        {/if}
     {/if}
 
-    <!-- No Result Yet -->
-    {#if !result && !isLoading && !error}
-        <div class="empty-state rounded-box">
-            <div class="empty-icon">⊕</div>
-            <div class="empty-text">
-                Pan the map to measure air density
-            </div>
-        </div>
+    <!-- Error display -->
+    {#if error}
+        <div class="error-msg">{error}</div>
     {/if}
 
     <!-- Mode Toggle -->
@@ -208,6 +145,7 @@
                 class="mode-btn"
                 class:active={!trackingMode && activePreset === null}
                 on:click={() => { activePreset = null; saveActivePreset(null); setTrackingMode(false); }}
+                title="Pick location on map"
             >
                 📍 Pick from Map
             </button>
@@ -550,9 +488,11 @@
         presetLocations = presetLocations; // Trigger reactivity
         savePresets();
         
-        // If the deleted preset was active, switch to tracking mode
+        // If the deleted preset was active, switch to pick-from-map mode but keep current location
         if (activePreset === num) {
-            setTrackingMode(true);
+            activePreset = null;
+            saveActivePreset(null);
+            setTrackingMode(false);
         }
     }
     
@@ -1203,10 +1143,13 @@
                 localStorage.setItem(STORAGE_KEY_INITIALIZED, 'true');
                 localStorage.setItem(STORAGE_KEY_TRACK_CENTER, 'false');
 
-                // Immediately make preset 1 active
+                // Immediately make preset 1 active and calculate density
                 trackingMode = false;
-                activePreset = 1;
                 saveTrackCenter(false);
+
+                // Temporarily assign presetLocations so selectPreset can work
+                presetLocations = { 1: defaultPresets[1], 2: null, 3: null, 4: null };
+                selectPreset(1);
             }
         } catch {
             // ignore storage errors
