@@ -175,6 +175,8 @@
                     class="save-preset-btn"
                     disabled={isPresetSameAsCurrent(presetNum)}
                     on:click={() => saveToPreset(presetNum)}
+                    on:mouseenter={() => hoveredSavePreset = presetNum}
+                    on:mouseleave={() => hoveredSavePreset = null}
                     title="Save current location to preset {presetNum}"
                 >
                     💾{presetNum}
@@ -203,6 +205,7 @@
                         class="preset-btn" 
                         class:active={!trackingMode && activePreset === presetNum}
                         class:has-location={preset !== null}
+                        class:save-target={hoveredSavePreset === presetNum}
                         on:click={() => selectPreset(presetNum)}
                         title={preset?.name || 'Empty preset'}
                         style={bgColor ? `background: ${bgColor}` : ''}
@@ -319,6 +322,7 @@
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     let trackNowInterval: ReturnType<typeof setInterval> | null = null;
+    let hoveredSavePreset: number | null = null;
     
     // Available models for quick switching
     const QUICK_MODELS = [
@@ -1212,6 +1216,7 @@
             .save-preset-row {
                 display: flex;
                 gap: 0.375rem;
+                margin-bottom: 0.25rem;
                 
                 .save-preset-btn {
                     flex: 1;
@@ -1305,6 +1310,11 @@
                     &.active {
                         border-color: white;
                         box-shadow: 0 0 0 1px white;
+                    }
+                    
+                    &.save-target {
+                        outline: 3px solid #ff3333;
+                        outline-offset: -1px;
                     }
                     
                     .preset-name {
@@ -1478,6 +1488,7 @@
                     overflow: hidden;
                     text-overflow: ellipsis;
                     max-width: 100%;
+                    padding-right: 0.5rem;
                 }
                 
                 .coordinates {
