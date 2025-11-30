@@ -30,14 +30,21 @@
     <!-- Current Settings -->
     <div class="settings-panel rounded-box mb-15">
         <div class="setting-row">
-            <span class="label">Model:</span>
-            <span class="value">{displayModel}{#if isLoading}...{/if}</span>
-        </div>
-        <div class="setting-row">
             <label class="track-now-label">
                 <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
                 <span>Track current time</span>
             </label>
+        </div>
+        <div class="model-chips">
+            {#each QUICK_MODELS as model}
+                <button 
+                    class="model-chip" 
+                    class:active={currentProduct === model}
+                    on:click={() => selectModel(model)}
+                >
+                    {model}
+                </button>
+            {/each}
         </div>
     </div>
 
@@ -180,15 +187,37 @@
     let result: DensityResult | null = null;
     let locationName: string | null = null;
     let displayModel = 'ecmwf';
+    let currentProduct = 'ecmwf';
     let lastUpdated: string = '';
     let marker: L.Marker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let trackNow = false;
+    let settingTimestampProgrammatically = false;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     let trackNowInterval: ReturnType<typeof setInterval> | null = null;
+    
+    // Available models for quick switching
+    const QUICK_MODELS = ['ecmwf', 'gfs', 'icon', 'iconEu', 'czeAladin', 'hrrr'];
+    const STORAGE_KEY = 'airDensity_lastModel';
+    
+    function loadLastModel(): string {
+        try {
+            return localStorage.getItem(STORAGE_KEY) || 'ecmwf';
+        } catch {
+            return 'ecmwf';
+        }
+    }
+    
+    function saveLastModel(model: string) {
+        try {
+            localStorage.setItem(STORAGE_KEY, model);
+        } catch {
+            // Ignore storage errors
+        }
+    }
     
     function formatForecastTime(timestamp: number): string {
         const date = new Date(timestamp);
@@ -443,15 +472,6 @@
         }
     }
 
-    function onStoreChange() {
-        // Update model display immediately
-        displayModel = getDisplayModelName();
-        
-        // Recalculate if we have a location
-        if (currentLocation && !isLoading) {
-            calculateDensity(currentLocation);
-        }
-    }
 
     function scheduleNextMinuteRefresh() {
         stopAutoRefresh();
@@ -481,7 +501,10 @@
     }
     
     function syncTimestampToNow() {
+        settingTimestampProgrammatically = true;
         store.set('timestamp', Date.now());
+        // Reset flag after a short delay to allow the store event to fire
+        setTimeout(() => { settingTimestampProgrammatically = false; }, 100);
     }
     
     function onTrackNowChange() {
@@ -496,6 +519,36 @@
                 trackNowInterval = null;
             }
         }
+    }
+    
+    function onTimestampChange() {
+        // If user changed timestamp while trackNow is on, turn it off
+        if (trackNow && !settingTimestampProgrammatically) {
+            trackNow = false;
+            if (trackNowInterval) {
+                clearInterval(trackNowInterval);
+                trackNowInterval = null;
+            }
+        }
+        
+        // Recalculate if we have a location
+        if (currentLocation && !isLoading) {
+            calculateDensity(currentLocation);
+        }
+    }
+    
+    function onProductChange() {
+        currentProduct = store.get('product') || 'ecmwf';
+        displayModel = getDisplayModelName();
+        saveLastModel(currentProduct);
+        
+        if (currentLocation && !isLoading) {
+            calculateDensity(currentLocation);
+        }
+    }
+    
+    function selectModel(model: string) {
+        store.set('product', model);
     }
 
     function setTrackingMode(enabled: boolean) {
@@ -531,17 +584,24 @@
     };
 
     onMount(() => {
-        store.on('product', onStoreChange);
-        store.on('timestamp', onStoreChange);
+        store.on('product', onProductChange);
+        store.on('timestamp', onTimestampChange);
+        currentProduct = store.get('product') || 'ecmwf';
         displayModel = getDisplayModelName();
+        
+        // Restore last used model if available
+        const lastModel = loadLastModel();
+        if (lastModel && lastModel !== currentProduct) {
+            store.set('product', lastModel);
+        }
     });
 
     onDestroy(() => {
         map.off('click', onMapClick);
         map.off('move', onMapMove);
         map.off('moveend', onMapMoveEnd);
-        store.off('product', onStoreChange);
-        store.off('timestamp', onStoreChange);
+        store.off('product', onProductChange);
+        store.off('timestamp', onTimestampChange);
         removeMarker();
         removeCenterMarker();
         stopAutoRefresh();
@@ -587,10 +647,7 @@
             .setting-row {
                 display: flex;
                 gap: 8px;
-                
-                &:not(:last-child) {
-                    margin-bottom: 8px;
-                }
+                margin-bottom: 10px;
                 
                 .label {
                     color: rgba(255, 255, 255, 0.6);
@@ -616,6 +673,35 @@
                     }
                     
                     &:hover {
+                        color: white;
+                    }
+                }
+            }
+            
+            .model-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                
+                .model-chip {
+                    padding: 4px 10px;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    background: rgba(0, 0, 0, 0.2);
+                    color: rgba(255, 255, 255, 0.7);
+                    border-radius: 12px;
+                    cursor: pointer;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    transition: all 0.2s;
+                    
+                    &:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                        color: white;
+                    }
+                    
+                    &.active {
+                        background: rgba(255, 102, 0, 0.3);
+                        border-color: #ff6600;
                         color: white;
                     }
                 }
