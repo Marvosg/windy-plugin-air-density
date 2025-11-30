@@ -606,9 +606,12 @@
             }
         }
         
-        // Recalculate if we have a location
-        if (currentLocation && !isLoading) {
+        // Recalculate when time changes (request counter handles race conditions)
+        if (currentLocation) {
             calculateDensity(currentLocation);
+        } else if (trackingMode) {
+            const center = map.getCenter();
+            calculateDensity({ lat: center.lat, lon: center.lng });
         }
     }
     
@@ -616,13 +619,32 @@
         currentProduct = store.get('product') || 'ecmwf';
         saveLastModel(currentProduct);
         
-        if (currentLocation && !isLoading) {
+        // Always recalculate when model changes (request counter handles race conditions)
+        if (currentLocation) {
             calculateDensity(currentLocation);
+        } else if (trackingMode) {
+            // If no location yet but in tracking mode, use map center
+            const center = map.getCenter();
+            calculateDensity({ lat: center.lat, lon: center.lng });
         }
     }
     
     function selectModel(model: string) {
+        if (model === currentProduct) {
+            return; // Already selected
+        }
+        
         store.set('product', model);
+        currentProduct = model;
+        saveLastModel(model);
+        
+        // Directly trigger recalculation
+        if (currentLocation) {
+            calculateDensity(currentLocation);
+        } else if (trackingMode) {
+            const center = map.getCenter();
+            calculateDensity({ lat: center.lat, lon: center.lng });
+        }
     }
 
     function setTrackingMode(enabled: boolean) {
@@ -639,11 +661,23 @@
     }
 
     export const onopen = (params?: LatLon) => {
+        // Register store listeners when plugin opens
+        store.on('product', onProductChange);
+        store.on('timestamp', onTimestampChange);
+        
+        currentProduct = store.get('product') || 'ecmwf';
+        
         map.on('click', onMapClick);
         map.on('move', onMapMove);
         map.on('moveend', onMapMoveEnd);
         
         startAutoRefresh();
+        
+        // Restore last used model if available
+        const lastModel = loadLastModel();
+        if (lastModel && lastModel !== currentProduct) {
+            store.set('product', lastModel);
+        }
         
         if (params && params.lat !== undefined && params.lon !== undefined) {
             trackingMode = false;
@@ -656,15 +690,7 @@
     };
 
     onMount(() => {
-        store.on('product', onProductChange);
-        store.on('timestamp', onTimestampChange);
-        currentProduct = store.get('product') || 'ecmwf';
-        
-        // Restore last used model if available
-        const lastModel = loadLastModel();
-        if (lastModel && lastModel !== currentProduct) {
-            store.set('product', lastModel);
-        }
+        // Component mounted - initial setup if needed
     });
 
     onDestroy(() => {
