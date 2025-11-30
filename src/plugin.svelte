@@ -238,6 +238,7 @@
         { id: 'nems', label: 'NEMS' },
     ];
     const STORAGE_KEY = 'airDensity_lastModel';
+    const STORAGE_KEY_TRACK_NOW = 'airDensity_trackNow';
     
     // Interpolate color along the gradient based on position (0-100)
     function getGradientColor(position: number): string {
@@ -272,6 +273,22 @@
     function saveLastModel(model: string) {
         try {
             localStorage.setItem(STORAGE_KEY, model);
+        } catch {
+            // Ignore storage errors
+        }
+    }
+    
+    function loadTrackNow(): boolean {
+        try {
+            return localStorage.getItem(STORAGE_KEY_TRACK_NOW) === 'true';
+        } catch {
+            return false;
+        }
+    }
+    
+    function saveTrackNow(enabled: boolean) {
+        try {
+            localStorage.setItem(STORAGE_KEY_TRACK_NOW, String(enabled));
         } catch {
             // Ignore storage errors
         }
@@ -587,6 +604,8 @@
     }
     
     function onTrackNowChange() {
+        saveTrackNow(trackNow);
+        
         if (trackNow) {
             // Sync immediately and start interval
             syncTimestampToNow();
@@ -604,6 +623,7 @@
         // If user changed timestamp while trackNow is on, turn it off
         if (trackNow && !settingTimestampProgrammatically) {
             trackNow = false;
+            saveTrackNow(false);
             if (trackNowInterval) {
                 clearInterval(trackNowInterval);
                 trackNowInterval = null;
@@ -681,6 +701,13 @@
         const lastModel = loadLastModel();
         if (lastModel && lastModel !== currentProduct) {
             store.set('product', lastModel);
+        }
+        
+        // Restore track now setting
+        trackNow = loadTrackNow();
+        if (trackNow) {
+            syncTimestampToNow();
+            trackNowInterval = setInterval(syncTimestampToNow, 60000);
         }
         
         if (params && params.lat !== undefined && params.lon !== undefined) {
