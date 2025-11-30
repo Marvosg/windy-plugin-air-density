@@ -288,7 +288,7 @@
         temp: number;
         pressure: number;
         humidity: number;
-        density: number;
+        density?: number | null;
     }
 
     // State
@@ -478,7 +478,16 @@
     
     function savePresets() {
         try {
-            localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(presetLocations));
+            // Strip density before persisting to avoid stale values
+            const sanitized: { [key: number]: Omit<PresetLocation, 'density'> | null } = { 1: null, 2: null, 3: null, 4: null };
+            for (const num of [1,2,3,4] as const) {
+                const p = presetLocations[num];
+                if (p) {
+                    const { lat, lon, name } = p;
+                    sanitized[num] = { lat, lon, name };
+                }
+            }
+            localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(sanitized));
         } catch {
             // Ignore storage errors
         }
@@ -1142,6 +1151,9 @@
         }
 
         presetLocations = loadPresets();
+
+        // Immediately fetch densities for existing presets (including default LCM)
+        updatePresetDensities();
         
         // Restore track now setting
         trackNow = loadTrackNow();
