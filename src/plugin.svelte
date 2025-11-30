@@ -780,6 +780,8 @@
 
     function onMapClick(e: L.LeafletMouseEvent) {
         if (!trackingMode) {
+            // Deselect preset when clicking on map (different location)
+            activePreset = null;
             calculateDensity({ lat: e.latlng.lat, lon: e.latlng.lng });
         }
     }
@@ -1336,8 +1338,10 @@
                 }
                 
                 .updated-at {
-                    font-size: 11px;
-                    color: rgba(255, 255, 255, 0.5);
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: white;
+                    min-width: max-content;
                 }
                 
                 .track-now-label {
