@@ -33,6 +33,12 @@
             <span class="label">Model:</span>
             <span class="value">{displayModel}{#if isLoading}...{/if}</span>
         </div>
+        <div class="setting-row">
+            <label class="track-now-label">
+                <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
+                <span>Track current time</span>
+            </label>
+        </div>
     </div>
 
     <!-- Error State -->
@@ -44,12 +50,10 @@
 
     <!-- Results -->
     {#if result}
-        <div class="result-panel rounded-box mb-15" class:is-loading={isLoading}>
-            {#if isLoading}
-                <div class="loading-overlay">
-                    <div class="spinner"></div>
-                </div>
-            {/if}
+        <div class="result-panel rounded-box mb-15">
+            <div class="loading-overlay" class:visible={showLoadingOverlay}>
+                <div class="spinner"></div>
+            </div>
             <div class="result-header">
                 <div class="location-info">
                     <span class="location-name">{locationName || 'Location'}</span>
@@ -158,7 +162,6 @@
     const DENSITY_STANDARD = 1.225;
     const DENSITY_MIN = 0.9;
     const DENSITY_MAX = 1.5;
-    const AUTO_REFRESH_INTERVAL = 60000;
 
     interface DensityResult {
         lat: number;
@@ -171,6 +174,8 @@
 
     // State
     let isLoading = false;
+    let showLoadingOverlay = false;
+    let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
     let error: string | null = null;
     let result: DensityResult | null = null;
     let locationName: string | null = null;
@@ -179,12 +184,38 @@
     let marker: L.Marker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
+    let trackNow = false;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
-    let refreshInterval: ReturnType<typeof setInterval> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    let trackNowInterval: ReturnType<typeof setInterval> | null = null;
     
-    function formatTime(date: Date): string {
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    function formatForecastTime(timestamp: number): string {
+        const date = new Date(timestamp);
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const day = days[date.getDay()];
+        const h = String(date.getHours()).padStart(2, '0');
+        const m = String(date.getMinutes()).padStart(2, '0');
+        return `${day} ${h}:${m}`;
+    }
+    
+    function setLoading(loading: boolean) {
+        isLoading = loading;
+        
+        if (loading) {
+            // Show overlay after 800ms delay
+            if (loadingTimeout) clearTimeout(loadingTimeout);
+            loadingTimeout = setTimeout(() => {
+                showLoadingOverlay = true;
+            }, 800);
+        } else {
+            // Clear pending timeout and hide overlay
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+                loadingTimeout = null;
+            }
+            showLoadingOverlay = false;
+        }
     }
 
     // Computed positions for comparison bar
@@ -279,7 +310,7 @@
         const { lat, lon } = latLon;
         
         if (!silent) {
-            isLoading = true;
+            setLoading(true);
         }
         error = null;
         currentLocation = latLon;
@@ -331,12 +362,14 @@
             const timestamps = weatherData.ts || [];
             let timeIndex = 0;
             let minDiff = Infinity;
+            let forecastTs = currentTs;
             
             for (let i = 0; i < timestamps.length; i++) {
                 const diff = Math.abs(timestamps[i] - currentTs);
                 if (diff < minDiff) {
                     minDiff = diff;
                     timeIndex = i;
+                    forecastTs = timestamps[i];
                 }
             }
 
@@ -375,7 +408,7 @@
                 density
             };
             
-            lastUpdated = formatTime(new Date());
+            lastUpdated = formatForecastTime(forecastTs);
 
         } catch (err) {
             console.error('Error calculating air density:', err);
@@ -384,7 +417,7 @@
                 result = null;
             }
         } finally {
-            isLoading = false;
+            setLoading(false);
         }
     }
 
@@ -420,19 +453,48 @@
         }
     }
 
-    function startAutoRefresh() {
+    function scheduleNextMinuteRefresh() {
         stopAutoRefresh();
-        refreshInterval = setInterval(() => {
+        
+        // Calculate ms until next minute boundary + 400ms cushion
+        const now = new Date();
+        const msUntilNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 400;
+        
+        refreshTimeout = setTimeout(() => {
             if (currentLocation && !isLoading) {
                 calculateDensity(currentLocation, true);
             }
-        }, AUTO_REFRESH_INTERVAL);
+            // Schedule the next one
+            scheduleNextMinuteRefresh();
+        }, msUntilNextMinute);
+    }
+
+    function startAutoRefresh() {
+        scheduleNextMinuteRefresh();
     }
 
     function stopAutoRefresh() {
-        if (refreshInterval) {
-            clearInterval(refreshInterval);
-            refreshInterval = null;
+        if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+            refreshTimeout = null;
+        }
+    }
+    
+    function syncTimestampToNow() {
+        store.set('timestamp', Date.now());
+    }
+    
+    function onTrackNowChange() {
+        if (trackNow) {
+            // Sync immediately and start interval
+            syncTimestampToNow();
+            trackNowInterval = setInterval(syncTimestampToNow, 60000);
+        } else {
+            // Stop syncing
+            if (trackNowInterval) {
+                clearInterval(trackNowInterval);
+                trackNowInterval = null;
+            }
         }
     }
 
@@ -484,6 +546,8 @@
         removeCenterMarker();
         stopAutoRefresh();
         if (moveTimeout) clearTimeout(moveTimeout);
+        if (loadingTimeout) clearTimeout(loadingTimeout);
+        if (trackNowInterval) clearInterval(trackNowInterval);
     });
 </script>
 
@@ -524,12 +588,36 @@
                 display: flex;
                 gap: 8px;
                 
+                &:not(:last-child) {
+                    margin-bottom: 8px;
+                }
+                
                 .label {
                     color: rgba(255, 255, 255, 0.6);
                 }
                 
                 .value {
                     font-weight: 500;
+                }
+                
+                .track-now-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.7);
+                    
+                    input[type="checkbox"] {
+                        accent-color: #ff6600;
+                        width: 14px;
+                        height: 14px;
+                        cursor: pointer;
+                    }
+                    
+                    &:hover {
+                        color: white;
+                    }
                 }
             }
         }
@@ -548,22 +636,26 @@
             padding: 15px;
             position: relative;
             
-            &.is-loading {
-                opacity: 0.7;
-            }
-            
             .loading-overlay {
                 position: absolute;
                 top: 0;
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.3);
+                background: rgba(0, 0, 0, 0.4);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 border-radius: 6px;
                 z-index: 10;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s ease;
+                
+                &.visible {
+                    opacity: 1;
+                    pointer-events: auto;
+                }
                 
                 .spinner {
                     width: 24px;
