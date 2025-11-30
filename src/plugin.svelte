@@ -32,12 +32,12 @@
                     {/if}
                 </button>
             </div>
-            <a 
-                href={pluginsPanelUrl}
+            <button 
                 class="plugins-panel-link"
+                on:click={openPluginsPanel}
             >
                 Open Windy Plugins Panel
-            </a>
+            </button>
         </div>
     {/if}
 
@@ -267,17 +267,8 @@
     let latestVersion = '';
     let copySuccess = false;
     
-    const updatePluginUrl = 'https://www.windy.com/plugins/windy-plugin-air-density';
-    
-    // Build plugins panel URL preserving current query params
-    $: pluginsPanelUrl = (() => {
-        const baseUrl = 'https://www.windy.com/plugins';
-        if (typeof window !== 'undefined') {
-            const params = window.location.search;
-            return params ? `${baseUrl}${params}` : baseUrl;
-        }
-        return baseUrl;
-    })();
+    // Build plugin URL with latest version
+    $: updatePluginUrl = `https://windy-plugins.com/1805937/windy-plugin-air-density/${latestVersion}/plugin.min.js`;
     
     async function copyUpdateUrl() {
         try {
@@ -289,6 +280,12 @@
         } catch (err) {
             console.error('Failed to copy:', err);
         }
+    }
+    
+    function openPluginsPanel() {
+        const baseUrl = 'https://www.windy.com/plugins';
+        const params = window.location.search;
+        window.location.href = params ? `${baseUrl}${params}` : baseUrl;
     }
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -989,15 +986,16 @@
             
             .plugins-panel-link {
                 display: block;
+                width: 100%;
                 text-align: center;
                 padding: 8px 12px;
                 background: rgba(76, 175, 80, 0.3);
                 border: 1px solid rgba(76, 175, 80, 0.5);
                 border-radius: 4px;
                 color: #81c784;
-                text-decoration: none;
                 font-size: 12px;
                 font-weight: 500;
+                cursor: pointer;
                 transition: all 0.2s;
                 
                 &:hover {
