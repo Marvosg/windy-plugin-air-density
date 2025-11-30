@@ -171,16 +171,26 @@
     <div class="mode-toggle mb-15">
         <div class="save-preset-row">
             {#each [1, 2, 3, 4] as presetNum}
-                <button 
-                    class="save-preset-btn"
-                    disabled={isPresetSameAsCurrent(presetNum)}
-                    on:click={() => saveToPreset(presetNum)}
-                    on:mouseenter={() => hoveredSavePreset = presetNum}
-                    on:mouseleave={() => hoveredSavePreset = null}
-                    title="Save current location to preset {presetNum}"
-                >
-                    💾{presetNum}
-                </button>
+                <div class="preset-actions">
+                    <button 
+                        class="save-preset-btn"
+                        disabled={isPresetSameAsCurrent(presetNum)}
+                        on:click={() => saveToPreset(presetNum)}
+                        on:mouseenter={() => hoveredSavePreset = presetNum}
+                        on:mouseleave={() => hoveredSavePreset = null}
+                        title="Save current location to preset {presetNum}"
+                    >
+                        💾{presetNum}
+                    </button>
+                    <button 
+                        class="delete-preset-btn"
+                        disabled={presetLocations[presetNum] === null}
+                        on:click={() => deletePreset(presetNum)}
+                        title="Delete preset {presetNum}"
+                    >
+                        🗑️
+                    </button>
+                </div>
             {/each}
         </div>
         
@@ -216,6 +226,7 @@
                         {:else}
                             <span class="preset-empty">{presetNum}</span>
                         {/if}
+                        <span class="preset-index">{presetNum}</span>
                     </button>
                 {/each}
             </div>
@@ -470,6 +481,17 @@
         };
         presetLocations = presetLocations; // Trigger reactivity
         savePresets();
+    }
+    
+    function deletePreset(num: number) {
+        presetLocations[num] = null;
+        presetLocations = presetLocations; // Trigger reactivity
+        savePresets();
+        
+        // If the deleted preset was active, switch to tracking mode
+        if (activePreset === num) {
+            setTrackingMode(true);
+        }
     }
     
     function selectPreset(num: number) {
@@ -949,6 +971,12 @@
         saveTrackNow(trackNow);
         
         if (trackNow) {
+            // Remember current forecast timestamp so that the first automatic
+            // update triggered right after enabling "Now" does not wrongly
+            // interpret the large jump as a user-initiated change and disable
+            // tracking again (see logic in calculateDensity).
+            previousForecastTimestamp = forecastTimestamp;
+
             // Sync immediately and start interval
             syncTimestampToNow();
             trackNowInterval = setInterval(syncTimestampToNow, 60000);
@@ -1218,8 +1246,16 @@
                 gap: 0.375rem;
                 margin-bottom: 0.25rem;
                 
-                .save-preset-btn {
+                .preset-actions {
                     flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.25rem;
+                }
+                
+                .save-preset-btn,
+                .delete-preset-btn {
+                    width: 100%;
                     padding: 0.375rem 0.5rem;
                     border: 1px solid rgba(255, 255, 255, 0.15);
                     background: rgba(0, 0, 0, 0.15);
@@ -1229,15 +1265,28 @@
                     font-size: 0.875rem;
                     transition: all 0.2s;
                     
+                    &:disabled {
+                        opacity: 0.3;
+                        cursor: not-allowed;
+                    }
+                }
+                
+                .save-preset-btn {
                     &:hover:not(:disabled) {
                         background: rgba(76, 175, 80, 0.2);
                         border-color: rgba(76, 175, 80, 0.4);
                         color: #81c784;
                     }
+                }
+                
+                .delete-preset-btn {
+                    padding: 0.25rem 0.5rem;
+                    font-size: 0.75rem;
                     
-                    &:disabled {
-                        opacity: 0.3;
-                        cursor: not-allowed;
+                    &:hover:not(:disabled) {
+                        background: rgba(255, 82, 82, 0.2);
+                        border-color: rgba(255, 82, 82, 0.4);
+                        color: #ff5252;
                     }
                 }
             }
@@ -1283,6 +1332,7 @@
                 gap: 0.375rem;
                 
                 .preset-btn {
+                    position: relative;
                     padding: 0.625rem 0.5rem;
                     border: 1px solid rgba(255, 255, 255, 0.2);
                     background: rgba(0, 0, 0, 0.2);
@@ -1337,6 +1387,15 @@
                         font-size: 1rem;
                         font-weight: 600;
                         opacity: 0.4;
+                    }
+                    
+                    .preset-index {
+                        position: absolute;
+                        bottom: 0.25rem;
+                        right: 0.375rem;
+                        font-size: 0.625rem;
+                        opacity: 0.4;
+                        font-weight: 500;
                     }
                     
                     &:not(.has-location) {
@@ -1542,6 +1601,7 @@
                     padding: 0.5rem;
                     background: rgba(0, 0, 0, 0.2);
                     border-radius: 0.375rem;
+                    min-width: 0;
                     
                     .result-label {
                         display: block;
@@ -1552,8 +1612,12 @@
                     
                     .result-value {
                         display: block;
-                        font-size: 1rem;
+                        font-size: 0.875rem;
                         font-weight: 600;
+                        color: rgba(255, 255, 255, 0.7);
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
                     }
                 }
             }
