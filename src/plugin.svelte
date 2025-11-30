@@ -44,19 +44,27 @@
     <!-- Mode Toggle -->
     <div class="mode-toggle mb-15">
         <button 
-            class="mode-btn" 
+            class="mode-btn mode-btn--full" 
             class:active={trackingMode}
             on:click={() => setTrackingMode(true)}
         >
-            ⊕ Track Center
+            ⊕ Map Center
         </button>
-        <button 
-            class="mode-btn" 
-            class:active={!trackingMode}
-            on:click={() => setTrackingMode(false)}
-        >
-            📍 Click to Select
-        </button>
+        <div class="preset-buttons">
+            {#each [1, 2, 3, 4, 5] as presetNum}
+                <button 
+                    class="preset-btn" 
+                    class:active={!trackingMode && activePreset === presetNum}
+                    class:has-location={presetLocations[presetNum] !== null}
+                    on:click={() => selectPreset(presetNum)}
+                    title={presetLocations[presetNum] 
+                        ? `${presetLocations[presetNum].name || 'Saved location'} (click again to update)` 
+                        : 'Click to save current location'}
+                >
+                    {presetNum}
+                </button>
+            {/each}
+        </div>
     </div>
 
     <!-- Model Selection -->
@@ -300,6 +308,18 @@
     ];
     const STORAGE_KEY = 'airDensity_lastModel';
     const STORAGE_KEY_TRACK_NOW = 'airDensity_trackNow';
+    const STORAGE_KEY_PRESETS = 'airDensity_presets';
+    
+    interface PresetLocation {
+        lat: number;
+        lon: number;
+        name: string | null;
+    }
+    
+    let activePreset: number | null = null;
+    let presetLocations: { [key: number]: PresetLocation | null } = {
+        1: null, 2: null, 3: null, 4: null, 5: null
+    };
     
     // Interpolate color along the gradient based on position (0-100)
     function getGradientColor(position: number): string {
@@ -352,6 +372,64 @@
             localStorage.setItem(STORAGE_KEY_TRACK_NOW, String(enabled));
         } catch {
             // Ignore storage errors
+        }
+    }
+    
+    function loadPresets(): { [key: number]: PresetLocation | null } {
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY_PRESETS);
+            if (stored) {
+                return JSON.parse(stored);
+            }
+        } catch {
+            // Ignore storage errors
+        }
+        return { 1: null, 2: null, 3: null, 4: null, 5: null };
+    }
+    
+    function savePresets() {
+        try {
+            localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(presetLocations));
+        } catch {
+            // Ignore storage errors
+        }
+    }
+    
+    function selectPreset(num: number) {
+        // If already active on this preset, update it with current location
+        if (!trackingMode && activePreset === num) {
+            const center = map.getCenter();
+            presetLocations[num] = {
+                lat: center.lat,
+                lon: center.lng,
+                name: locationName
+            };
+            presetLocations = presetLocations; // Trigger reactivity
+            savePresets();
+            return;
+        }
+        
+        // Switch to this preset
+        trackingMode = false;
+        activePreset = num;
+        removeCenterMarker();
+        
+        const preset = presetLocations[num];
+        if (preset) {
+            // Has saved location - go there
+            map.setView([preset.lat, preset.lon], map.getZoom());
+            calculateDensity({ lat: preset.lat, lon: preset.lon });
+        } else {
+            // No saved location - save current center
+            const center = map.getCenter();
+            presetLocations[num] = {
+                lat: center.lat,
+                lon: center.lng,
+                name: locationName
+            };
+            presetLocations = presetLocations; // Trigger reactivity
+            savePresets();
+            calculateDensity({ lat: center.lat, lon: center.lng });
         }
     }
     
@@ -773,6 +851,7 @@
         trackingMode = enabled;
         
         if (enabled) {
+            activePreset = null;
             removeMarker();
             updateCenterMarker();
             const center = map.getCenter();
@@ -800,6 +879,9 @@
         if (lastModel && lastModel !== currentProduct) {
             store.set('product', lastModel);
         }
+        
+        // Load saved preset locations
+        presetLocations = loadPresets();
         
         // Restore track now setting
         trackNow = loadTrackNow();
@@ -927,10 +1009,10 @@
         
         .mode-toggle {
             display: flex;
+            flex-direction: column;
             gap: 8px;
             
             .mode-btn {
-                flex: 1;
                 padding: 8px 12px;
                 border: 1px solid rgba(255, 255, 255, 0.2);
                 background: rgba(0, 0, 0, 0.2);
@@ -948,6 +1030,44 @@
                     background: rgba(255, 102, 0, 0.3);
                     border-color: #ff6600;
                     color: white;
+                }
+                
+                &--full {
+                    width: 100%;
+                }
+            }
+            
+            .preset-buttons {
+                display: flex;
+                gap: 6px;
+                
+                .preset-btn {
+                    flex: 1;
+                    padding: 12px 8px;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    background: rgba(0, 0, 0, 0.2);
+                    color: rgba(255, 255, 255, 0.5);
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: 600;
+                    transition: all 0.2s;
+                    
+                    &:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                        color: rgba(255, 255, 255, 0.8);
+                    }
+                    
+                    &.has-location {
+                        color: rgba(255, 255, 255, 0.8);
+                        border-color: rgba(255, 255, 255, 0.3);
+                    }
+                    
+                    &.active {
+                        background: rgba(255, 102, 0, 0.3);
+                        border-color: #ff6600;
+                        color: white;
+                    }
                 }
             }
         }
