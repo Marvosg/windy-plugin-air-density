@@ -9,6 +9,20 @@
         {title}
     </div>
 
+    <!-- Update Available Banner -->
+    {#if updateAvailable}
+        <div class="update-banner mb-15">
+            <span class="update-text">🆕 v{latestVersion} available!</span>
+            <a 
+                href="https://www.windy.com/plugins/windy-plugin-air-density" 
+                target="_blank" 
+                class="update-link"
+            >
+                Update
+            </a>
+        </div>
+    {/if}
+
     <!-- Mode Toggle -->
     <div class="mode-toggle mb-15">
         <button 
@@ -182,6 +196,8 @@
 
     import config from './pluginConfig';
     import { calculateAirDensity } from './airDensity';
+    
+    const VERSION_CHECK_URL = 'https://raw.githubusercontent.com/Marvosg/windy-plugin-air-density/refs/heads/main/src/pluginConfig.ts';
 
     import type { LatLon, WeatherDataPayload, DataHash } from '@windy/interfaces.d';
     import type { HttpPayload } from '@windy/http.d';
@@ -212,6 +228,7 @@
     let requestedForResult = 'ecmwf'; // What was requested for the current result (to detect true fallbacks)
     let lastUpdated: string = '';
     let forecastTimestamp: number = Date.now();
+    let previousForecastTimestamp: number = Date.now();
     let requestCounter = 0; // Prevents stale data from race conditions
     
     // Check if forecast time is within 1 hour of actual current time
@@ -220,6 +237,8 @@
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let trackNow = false;
+    let updateAvailable = false;
+    let latestVersion = '';
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -290,6 +309,40 @@
             localStorage.setItem(STORAGE_KEY_TRACK_NOW, String(enabled));
         } catch {
             // Ignore storage errors
+        }
+    }
+    
+    function compareVersions(current: string, latest: string): boolean {
+        const currentParts = current.split('.').map(Number);
+        const latestParts = latest.split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
+            const c = currentParts[i] || 0;
+            const l = latestParts[i] || 0;
+            if (l > c) return true;
+            if (l < c) return false;
+        }
+        return false;
+    }
+    
+    async function checkForUpdates() {
+        try {
+            const response = await fetch(VERSION_CHECK_URL);
+            if (!response.ok) return;
+            
+            const text = await response.text();
+            // Parse version from the TypeScript file
+            const versionMatch = text.match(/version:\s*['"]([^'"]+)['"]/);
+            if (versionMatch && versionMatch[1]) {
+                const remoteVersion = versionMatch[1];
+                if (compareVersions(config.version, remoteVersion)) {
+                    latestVersion = remoteVersion;
+                    updateAvailable = true;
+                }
+            }
+        } catch (err) {
+            // Silently fail - version check is not critical
+            console.log('[Air Density] Version check failed:', err);
         }
     }
     
@@ -527,7 +580,19 @@
             };
             
             lastUpdated = formatForecastTime(forecastTs);
+            previousForecastTimestamp = forecastTimestamp;
             forecastTimestamp = forecastTs;
+            
+            // If trackNow is on but forecast time changed significantly (> 1 hour), turn it off
+            // This means user intentionally selected a different time
+            if (trackNow && Math.abs(forecastTimestamp - previousForecastTimestamp) > 3600000) {
+                trackNow = false;
+                saveTrackNow(false);
+                if (trackNowInterval) {
+                    clearInterval(trackNowInterval);
+                    trackNowInterval = null;
+                }
+            }
 
         } catch (err) {
             // Only update error state if this is still the latest request
@@ -616,22 +681,7 @@
     }
     
     function onTimestampChange() {
-        // If user changed timestamp while trackNow is on, turn it off
-        // But only if the timestamp is significantly different from "now" (more than 2 minutes)
-        // This allows model changes and small adjustments without turning off trackNow
-        if (trackNow) {
-            const currentTs = store.get('timestamp') || Date.now();
-            const diffFromNow = Math.abs(currentTs - Date.now());
-            
-            if (diffFromNow > 120000) { // More than 2 minutes from now = user changed it
-                trackNow = false;
-                saveTrackNow(false);
-                if (trackNowInterval) {
-                    clearInterval(trackNowInterval);
-                    trackNowInterval = null;
-                }
-            }
-        }
+        // Recalculation will happen, and we'll check if forecast time actually changed there
         
         // Recalculate when time changes (request counter handles race conditions)
         if (currentLocation) {
@@ -721,6 +771,9 @@
             const center = map.getCenter();
             calculateDensity({ lat: center.lat, lon: center.lng });
         }
+        
+        // Check for updates (async, non-blocking)
+        checkForUpdates();
     };
 
     onMount(() => {
@@ -744,6 +797,38 @@
 
 <style lang="less">
     .density-plugin {
+        .update-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
+            border: 1px solid rgba(76, 175, 80, 0.4);
+            border-radius: 6px;
+            
+            .update-text {
+                font-size: 12px;
+                color: rgba(255, 255, 255, 0.9);
+            }
+            
+            .update-link {
+                padding: 4px 12px;
+                background: rgba(76, 175, 80, 0.3);
+                border: 1px solid rgba(76, 175, 80, 0.5);
+                border-radius: 4px;
+                color: #81c784;
+                text-decoration: none;
+                font-size: 11px;
+                font-weight: 500;
+                transition: all 0.2s;
+                
+                &:hover {
+                    background: rgba(76, 175, 80, 0.5);
+                    color: white;
+                }
+            }
+        }
+        
         .mode-toggle {
             display: flex;
             gap: 8px;
