@@ -41,32 +41,6 @@
         </div>
     {/if}
 
-    <!-- Mode Toggle -->
-    <div class="mode-toggle mb-15">
-        <button 
-            class="mode-btn mode-btn--full" 
-            class:active={trackingMode}
-            on:click={() => setTrackingMode(true)}
-        >
-            ⊕ Map Center
-        </button>
-        <div class="preset-buttons">
-            {#each [1, 2, 3, 4, 5] as presetNum}
-                <button 
-                    class="preset-btn" 
-                    class:active={!trackingMode && activePreset === presetNum}
-                    class:has-location={presetLocations[presetNum] !== null}
-                    on:click={() => selectPreset(presetNum)}
-                    title={presetLocations[presetNum] 
-                        ? `${presetLocations[presetNum].name || 'Saved location'} (click again to update)` 
-                        : 'Click to save current location'}
-                >
-                    {presetNum}
-                </button>
-            {/each}
-        </div>
-    </div>
-
     <!-- Model Selection -->
     <div class="settings-panel rounded-box mb-15">
         <div class="model-info">
@@ -186,12 +160,55 @@
     <!-- No Result Yet -->
     {#if !result && !isLoading && !error}
         <div class="empty-state rounded-box">
-            <div class="empty-icon">{trackingMode ? '⊕' : '📍'}</div>
+            <div class="empty-icon">⊕</div>
             <div class="empty-text">
-                {trackingMode ? 'Pan the map to measure' : 'Click on map to measure'}
+                Pan the map to measure air density
             </div>
         </div>
     {/if}
+
+    <!-- Mode Toggle -->
+    <div class="mode-toggle mb-15">
+        <button 
+            class="mode-btn mode-btn--full" 
+            class:active={trackingMode}
+            on:click={() => setTrackingMode(true)}
+        >
+            ⊕ Map Center
+        </button>
+        
+        <div class="save-preset-row">
+            {#each [1, 2, 3, 4] as presetNum}
+                <button 
+                    class="save-preset-btn"
+                    disabled={isPresetSameAsCurrent(presetNum)}
+                    on:click={() => saveToPreset(presetNum)}
+                    title="Save current location to preset {presetNum}"
+                >
+                    💾{presetNum}
+                </button>
+            {/each}
+        </div>
+        
+        <div class="preset-buttons">
+            {#each [1, 2, 3, 4] as presetNum}
+                <button 
+                    class="preset-btn" 
+                    class:active={!trackingMode && activePreset === presetNum}
+                    class:has-location={presetLocations[presetNum] !== null}
+                    on:click={() => selectPreset(presetNum)}
+                    title={presetLocations[presetNum]?.name || 'Empty preset'}
+                >
+                    {#if presetLocations[presetNum]}
+                        <span class="preset-name">{presetLocations[presetNum].name || 'Location'}</span>
+                        <span class="preset-density">{presetLocations[presetNum].density?.toFixed(4) || '—'}</span>
+                    {:else}
+                        <span class="preset-empty">{presetNum}</span>
+                    {/if}
+                </button>
+            {/each}
+        </div>
+    </div>
 
     <!-- Info Section -->
     <div class="info-section rounded-box bg-secondary">
@@ -261,6 +278,7 @@
     $: isCurrentTime = Math.abs(forecastTimestamp - Date.now()) < 3600000;
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
+    let crosshairMarker: L.Marker | null = null;
     let trackingMode = true;
     let trackNow = false;
     let updateAvailable = false;
@@ -311,11 +329,12 @@
         lat: number;
         lon: number;
         name: string | null;
+        density: number | null;
     }
     
     let activePreset: number | null = null;
     let presetLocations: { [key: number]: PresetLocation | null } = {
-        1: null, 2: null, 3: null, 4: null, 5: null
+        1: null, 2: null, 3: null, 4: null
     };
     
     // Interpolate color along the gradient based on position (0-100)
@@ -376,12 +395,14 @@
         try {
             const stored = localStorage.getItem(STORAGE_KEY_PRESETS);
             if (stored) {
-                return JSON.parse(stored);
+                const parsed = JSON.parse(stored);
+                // Ensure we only have 4 presets
+                return { 1: parsed[1] || null, 2: parsed[2] || null, 3: parsed[3] || null, 4: parsed[4] || null };
             }
         } catch {
             // Ignore storage errors
         }
-        return { 1: null, 2: null, 3: null, 4: null, 5: null };
+        return { 1: null, 2: null, 3: null, 4: null };
     }
     
     function savePresets() {
@@ -392,42 +413,46 @@
         }
     }
     
-    function selectPreset(num: number) {
-        // If already active on this preset, update it with current location
-        if (!trackingMode && activePreset === num) {
-            const center = map.getCenter();
-            presetLocations[num] = {
-                lat: center.lat,
-                lon: center.lng,
-                name: locationName
-            };
-            presetLocations = presetLocations; // Trigger reactivity
-            savePresets();
+    function isPresetSameAsCurrent(num: number): boolean {
+        const preset = presetLocations[num];
+        if (!preset || !currentLocation) {
+            return false;
+        }
+        // Consider same if within ~100m
+        const latDiff = Math.abs(preset.lat - currentLocation.lat);
+        const lonDiff = Math.abs(preset.lon - currentLocation.lon);
+        return latDiff < 0.001 && lonDiff < 0.001;
+    }
+    
+    function saveToPreset(num: number) {
+        if (!currentLocation) {
             return;
         }
         
-        // Switch to this preset
+        presetLocations[num] = {
+            lat: currentLocation.lat,
+            lon: currentLocation.lon,
+            name: locationName,
+            density: result?.density || null
+        };
+        presetLocations = presetLocations; // Trigger reactivity
+        savePresets();
+    }
+    
+    function selectPreset(num: number) {
+        const preset = presetLocations[num];
+        if (!preset) {
+            // No saved location - do nothing
+            return;
+        }
+        
+        // Switch to this preset and load its location
         trackingMode = false;
         activePreset = num;
         removeCenterMarker();
         
-        const preset = presetLocations[num];
-        if (preset) {
-            // Has saved location - go there
-            map.setView([preset.lat, preset.lon], map.getZoom());
-            calculateDensity({ lat: preset.lat, lon: preset.lon });
-        } else {
-            // No saved location - save current center
-            const center = map.getCenter();
-            presetLocations[num] = {
-                lat: center.lat,
-                lon: center.lng,
-                name: locationName
-            };
-            presetLocations = presetLocations; // Trigger reactivity
-            savePresets();
-            calculateDensity({ lat: center.lat, lon: center.lng });
-        }
+        map.setView([preset.lat, preset.lon], map.getZoom());
+        calculateDensity({ lat: preset.lat, lon: preset.lon });
     }
     
     function compareVersions(current: string, latest: string): boolean {
@@ -549,7 +574,7 @@
 
     /**
      * Update center marker (crosshair) for tracking mode
-     * Using L.circleMarker which is simpler and more reliable
+     * Using L.circleMarker with a crosshair overlay
      */
     function updateCenterMarker() {
         const center = map.getCenter();
@@ -557,7 +582,7 @@
         if (centerMarker) {
             centerMarker.setLatLng(center);
         } else {
-            // Create a simple circle marker as crosshair
+            // Create a simple circle marker
             centerMarker = L.circleMarker(center, {
                 radius: MARKER_RADIUS,
                 color: '#ff6600',
@@ -567,12 +592,32 @@
                 className: 'density-center-marker'
             }).addTo(map);
         }
+        
+        // Update crosshair overlay
+        if (crosshairMarker) {
+            crosshairMarker.setLatLng(center);
+        } else {
+            const crosshairIcon = L.divIcon({
+                className: 'density-crosshair-icon',
+                iconSize: [MARKER_RADIUS * 2 + 8, MARKER_RADIUS * 2 + 8],
+                iconAnchor: [MARKER_RADIUS + 4, MARKER_RADIUS + 4],
+                html: `<svg viewBox="0 0 32 32" width="32" height="32">
+                    <line x1="16" y1="4" x2="16" y2="28" stroke="#ff6600" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="4" y1="16" x2="28" y2="16" stroke="#ff6600" stroke-width="2" stroke-linecap="round"/>
+                </svg>`
+            });
+            crosshairMarker = L.marker(center, { icon: crosshairIcon, interactive: false }).addTo(map);
+        }
     }
 
     function removeCenterMarker() {
         if (centerMarker) {
             centerMarker.remove();
             centerMarker = null;
+        }
+        if (crosshairMarker) {
+            crosshairMarker.remove();
+            crosshairMarker = null;
         }
     }
 
@@ -1035,21 +1080,53 @@
                 }
             }
             
-            .preset-buttons {
+            .save-preset-row {
                 display: flex;
                 gap: 6px;
                 
-                .preset-btn {
+                .save-preset-btn {
                     flex: 1;
-                    padding: 12px 8px;
+                    padding: 6px 8px;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    background: rgba(0, 0, 0, 0.15);
+                    color: rgba(255, 255, 255, 0.6);
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 11px;
+                    transition: all 0.2s;
+                    
+                    &:hover:not(:disabled) {
+                        background: rgba(76, 175, 80, 0.2);
+                        border-color: rgba(76, 175, 80, 0.4);
+                        color: #81c784;
+                    }
+                    
+                    &:disabled {
+                        opacity: 0.3;
+                        cursor: not-allowed;
+                    }
+                }
+            }
+            
+            .preset-buttons {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px;
+                
+                .preset-btn {
+                    padding: 10px 8px;
                     border: 1px solid rgba(255, 255, 255, 0.2);
                     background: rgba(0, 0, 0, 0.2);
                     color: rgba(255, 255, 255, 0.5);
                     border-radius: 6px;
                     cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 600;
                     transition: all 0.2s;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 2px;
+                    min-height: 50px;
+                    justify-content: center;
                     
                     &:hover {
                         background: rgba(255, 255, 255, 0.1);
@@ -1057,14 +1134,45 @@
                     }
                     
                     &.has-location {
-                        color: rgba(255, 255, 255, 0.8);
+                        color: rgba(255, 255, 255, 0.9);
                         border-color: rgba(255, 255, 255, 0.3);
+                        background: rgba(0, 0, 0, 0.25);
                     }
                     
                     &.active {
                         background: rgba(255, 102, 0, 0.3);
                         border-color: #ff6600;
                         color: white;
+                    }
+                    
+                    .preset-name {
+                        font-size: 11px;
+                        font-weight: 500;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        max-width: 100%;
+                    }
+                    
+                    .preset-density {
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: #4CAF50;
+                    }
+                    
+                    .preset-empty {
+                        font-size: 16px;
+                        font-weight: 600;
+                        opacity: 0.4;
+                    }
+                    
+                    &:not(.has-location) {
+                        cursor: default;
+                        
+                        &:hover {
+                            background: rgba(0, 0, 0, 0.2);
+                            color: rgba(255, 255, 255, 0.5);
+                        }
                     }
                 }
             }
@@ -1464,5 +1572,10 @@
 
     @keyframes spin {
         to { transform: rotate(360deg); }
+    }
+    
+    :global(.density-crosshair-icon) {
+        background: transparent !important;
+        border: none !important;
     }
 </style>
