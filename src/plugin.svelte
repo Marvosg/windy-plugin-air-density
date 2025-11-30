@@ -196,13 +196,22 @@
             {/each}
         </div>
         
-        <button 
-            class="mode-btn mode-btn--full" 
-            class:active={trackingMode}
-            on:click={() => setTrackingMode(true)}
-        >
-            ⊕ Map Center
-        </button>
+        <div class="mode-row">
+            <button 
+                class="mode-btn" 
+                class:active={trackingMode}
+                on:click={() => setTrackingMode(true)}
+            >
+                ⊕ Map Center
+            </button>
+            <button
+                class="mode-btn"
+                class:active={!trackingMode && activePreset === null}
+                on:click={() => { activePreset = null; setTrackingMode(false); }}
+            >
+                📍 Pick from Map
+            </button>
+        </div>
         
         <div class="preset-buttons-container">
             <div class="loading-overlay" class:visible={showPresetsLoadingOverlay}>
@@ -304,6 +313,18 @@
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
+    function loadTrackCenter(): boolean {
+        try {
+            return localStorage.getItem(STORAGE_KEY_TRACK_CENTER) !== 'false';
+        } catch { return true; }
+    }
+
+    function saveTrackCenter(enabled: boolean) {
+        try { localStorage.setItem(STORAGE_KEY_TRACK_CENTER, String(enabled)); } catch {}
+    }
+
+    // Initialize
+    trackingMode = loadTrackCenter();
     let trackNow = false;
     let updateAvailable = false;
     let latestVersion = '';
@@ -351,6 +372,8 @@
     const STORAGE_KEY = 'airDensity_lastModel';
     const STORAGE_KEY_TRACK_NOW = 'airDensity_trackNow';
     const STORAGE_KEY_PRESETS = 'airDensity_presets';
+    // Remember whether we are following map center (true) or picking manually (false)
+    const STORAGE_KEY_TRACK_CENTER = 'airDensity_trackCenter';
     // Key used to mark that the plugin has completed its first-launch initialization
     const STORAGE_KEY_INITIALIZED = 'airDensity_initialized';
     
@@ -507,6 +530,7 @@
         
         // Switch to this preset and load its location
         trackingMode = false;
+        saveTrackCenter(false);
         activePreset = num;
         removeCenterMarker();
         
@@ -1057,6 +1081,7 @@
 
     function setTrackingMode(enabled: boolean) {
         trackingMode = enabled;
+        saveTrackCenter(enabled);
         
         if (enabled) {
             activePreset = null;
@@ -1105,8 +1130,16 @@
                 } as { [key: number]: PresetLocation | null };
                 localStorage.setItem(STORAGE_KEY_PRESETS, JSON.stringify(defaultPresets));
                 localStorage.setItem(STORAGE_KEY_INITIALIZED, 'true');
+                localStorage.setItem(STORAGE_KEY_TRACK_CENTER, 'false');
+
+                // Immediately make preset 1 active
+                trackingMode = false;
+                activePreset = 1;
+                saveTrackCenter(false);
             }
-        } catch {/* ignore */}
+        } catch {
+            // ignore storage errors
+        }
 
         presetLocations = loadPresets();
         
@@ -1251,6 +1284,15 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+
+            .mode-row {
+                display: flex;
+                gap: 0.5rem;
+
+                .mode-btn {
+                    flex: 1 1 0;
+                }
+            }
             
             .mode-btn {
                 padding: 0.5rem 0.75rem;
