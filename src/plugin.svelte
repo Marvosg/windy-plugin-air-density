@@ -220,7 +220,6 @@
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
     let trackNow = false;
-    let settingTimestampProgrammatically = false;
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -597,10 +596,7 @@
     }
     
     function syncTimestampToNow() {
-        settingTimestampProgrammatically = true;
         store.set('timestamp', Date.now());
-        // Reset flag after a short delay to allow the store event to fire
-        setTimeout(() => { settingTimestampProgrammatically = false; }, 100);
     }
     
     function onTrackNowChange() {
@@ -621,12 +617,19 @@
     
     function onTimestampChange() {
         // If user changed timestamp while trackNow is on, turn it off
-        if (trackNow && !settingTimestampProgrammatically) {
-            trackNow = false;
-            saveTrackNow(false);
-            if (trackNowInterval) {
-                clearInterval(trackNowInterval);
-                trackNowInterval = null;
+        // But only if the timestamp is significantly different from "now" (more than 2 minutes)
+        // This allows model changes and small adjustments without turning off trackNow
+        if (trackNow) {
+            const currentTs = store.get('timestamp') || Date.now();
+            const diffFromNow = Math.abs(currentTs - Date.now());
+            
+            if (diffFromNow > 120000) { // More than 2 minutes from now = user changed it
+                trackNow = false;
+                saveTrackNow(false);
+                if (trackNowInterval) {
+                    clearInterval(trackNowInterval);
+                    trackNowInterval = null;
+                }
             }
         }
         
