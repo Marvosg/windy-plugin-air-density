@@ -14,7 +14,7 @@
         <div class="update-banner mb-15">
             <div class="update-header">🆕 v{latestVersion} available!</div>
             <p class="update-instructions">
-                Copy the link below and paste it in "Load plugin directly from URL":
+                Copy the link below and paste it in <code>Load plugin directly from URL</code>:
             </p>
             <div class="update-url-box">
                 <input 
@@ -95,7 +95,7 @@
                     <span class="updated-at">{lastUpdated}</span>
                     <label class="track-now-label">
                         <input type="checkbox" bind:checked={trackNow} on:change={onTrackNowChange} />
-                        <span>Current time</span>
+                        <span>Now</span>
                     </label>
                 </div>
             </div>
@@ -115,7 +115,7 @@
                 </div>
             </div>
 
-            <div class="density-result" style="--density-color: {getGradientColor(getDensityPosition(result.density))}">
+            <div class="density-result" style="background: {getGradientBg(getDensityPosition(result.density), 0.25)}">
                 <span class="density-label">Air Density</span>
                 <span class="density-value">{result.density.toFixed(4)}</span>
                 <span class="density-unit">kg/m³</span>
@@ -193,14 +193,16 @@
         <div class="preset-buttons">
             {#each [1, 2, 3, 4] as presetNum}
                 {@const preset = presetLocations[presetNum]}
-                {@const densityColor = preset?.density ? getGradientColor(getDensityPosition(preset.density)) : null}
+                {@const pos = preset?.density ? getDensityPosition(preset.density) : 0}
+                {@const bgColor = preset?.density ? getGradientBg(pos, 0.3) : null}
+                {@const borderColor = preset?.density ? getGradientColor(pos) : null}
                 <button 
                     class="preset-btn" 
                     class:active={!trackingMode && activePreset === presetNum}
                     class:has-location={preset !== null}
                     on:click={() => selectPreset(presetNum)}
                     title={preset?.name || 'Empty preset'}
-                    style={densityColor ? `--density-color: ${densityColor}` : ''}
+                    style={bgColor ? `background: ${bgColor}; border-color: ${borderColor}` : ''}
                 >
                     {#if preset}
                         <span class="preset-name">{preset.name || 'Location'}</span>
@@ -344,26 +346,40 @@
         return Math.max(0, Math.min(100, ((density - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100));
     }
     
-    // Interpolate color along the gradient based on position (0-100)
-    function getGradientColor(position: number): string {
+    // Get RGB components for a position on the gradient (0-100)
+    function getGradientRGB(position: number): [number, number, number] {
         // Gradient: #ff9800 (0%) -> #4CAF50 (54%) -> #2196F3 (100%)
         const p = Math.max(0, Math.min(100, position)) / 100;
         
         if (p <= 0.54) {
             // Orange to green
             const t = p / 0.54;
-            const r = Math.round(255 * (1 - t) + 76 * t);
-            const g = Math.round(152 * (1 - t) + 175 * t);
-            const b = Math.round(0 * (1 - t) + 80 * t);
-            return `rgb(${r}, ${g}, ${b})`;
+            return [
+                Math.round(255 * (1 - t) + 76 * t),
+                Math.round(152 * (1 - t) + 175 * t),
+                Math.round(0 * (1 - t) + 80 * t)
+            ];
         } else {
             // Green to blue
             const t = (p - 0.54) / 0.46;
-            const r = Math.round(76 * (1 - t) + 33 * t);
-            const g = Math.round(175 * (1 - t) + 150 * t);
-            const b = Math.round(80 * (1 - t) + 243 * t);
-            return `rgb(${r}, ${g}, ${b})`;
+            return [
+                Math.round(76 * (1 - t) + 33 * t),
+                Math.round(175 * (1 - t) + 150 * t),
+                Math.round(80 * (1 - t) + 243 * t)
+            ];
         }
+    }
+    
+    // Interpolate color along the gradient based on position (0-100)
+    function getGradientColor(position: number): string {
+        const [r, g, b] = getGradientRGB(position);
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+    
+    // Get gradient color with alpha for backgrounds
+    function getGradientBg(position: number, alpha: number = 0.25): string {
+        const [r, g, b] = getGradientRGB(position);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
     
     function loadLastModel(): string {
@@ -973,6 +989,15 @@
                 color: rgba(255, 255, 255, 0.7);
                 margin: 0;
                 line-height: 1.4;
+                
+                code {
+                    background: rgba(0, 0, 0, 0.3);
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-family: monospace;
+                    font-size: 10px;
+                    color: rgba(255, 255, 255, 0.9);
+                }
             }
             
             .update-url-box {
@@ -1012,6 +1037,7 @@
                     
                     .copy-icon {
                         font-size: 12px;
+                        color: white;
                     }
                 }
             }
@@ -1123,11 +1149,6 @@
                     
                     &.has-location {
                         color: rgba(255, 255, 255, 0.95);
-                        border-color: var(--density-color, rgba(255, 255, 255, 0.3));
-                        background: linear-gradient(135deg, 
-                            color-mix(in srgb, var(--density-color) 25%, transparent),
-                            color-mix(in srgb, var(--density-color) 15%, transparent)
-                        );
                     }
                     
                     &.active {
@@ -1370,10 +1391,6 @@
             .density-result {
                 text-align: center;
                 padding: 12px;
-                background: linear-gradient(135deg, 
-                    color-mix(in srgb, var(--density-color, #4CAF50) 25%, transparent),
-                    color-mix(in srgb, var(--density-color, #4CAF50) 15%, transparent)
-                );
                 border-radius: 8px;
                 margin-bottom: 8px;
                 
