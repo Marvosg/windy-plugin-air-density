@@ -12,13 +12,31 @@
     <!-- Update Available Banner -->
     {#if updateAvailable}
         <div class="update-banner mb-15">
-            <span class="update-text">🆕 v{latestVersion} available!</span>
+            <div class="update-header">🆕 v{latestVersion} available!</div>
+            <p class="update-instructions">
+                Copy the link below and paste it in "Load plugin directly from URL":
+            </p>
+            <div class="update-url-box">
+                <input 
+                    type="text" 
+                    readonly 
+                    value={updatePluginUrl}
+                    class="update-url-input"
+                    on:click={(e) => e.currentTarget.select()}
+                />
+                <button class="copy-btn" on:click={copyUpdateUrl} title="Copy URL">
+                    {#if copySuccess}
+                        <span class="copy-icon">✓</span>
+                    {:else}
+                        <span class="copy-icon">📋</span>
+                    {/if}
+                </button>
+            </div>
             <a 
-                href="https://www.windy.com/plugins/windy-plugin-air-density" 
-                target="_blank" 
-                class="update-link"
+                href={pluginsPanelUrl}
+                class="plugins-panel-link"
             >
-                Update
+                Open Windy Plugins Panel
             </a>
         </div>
     {/if}
@@ -239,6 +257,31 @@
     let trackNow = false;
     let updateAvailable = false;
     let latestVersion = '';
+    let copySuccess = false;
+    
+    const updatePluginUrl = 'https://www.windy.com/plugins/windy-plugin-air-density';
+    
+    // Build plugins panel URL preserving current query params
+    $: pluginsPanelUrl = (() => {
+        const baseUrl = 'https://www.windy.com/plugins';
+        if (typeof window !== 'undefined') {
+            const params = window.location.search;
+            return params ? `${baseUrl}${params}` : baseUrl;
+        }
+        return baseUrl;
+    })();
+    
+    async function copyUpdateUrl() {
+        try {
+            await navigator.clipboard.writeText(updatePluginUrl);
+            copySuccess = true;
+            setTimeout(() => {
+                copySuccess = false;
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    }
     let currentLocation: LatLon | null = null;
     let moveTimeout: ReturnType<typeof setTimeout> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -801,26 +844,77 @@
     .density-plugin {
         .update-banner {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
+            flex-direction: column;
+            gap: 8px;
+            padding: 12px;
             background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
             border: 1px solid rgba(76, 175, 80, 0.4);
             border-radius: 6px;
             
-            .update-text {
-                font-size: 12px;
-                color: rgba(255, 255, 255, 0.9);
+            .update-header {
+                font-size: 13px;
+                font-weight: 600;
+                color: rgba(255, 255, 255, 0.95);
             }
             
-            .update-link {
-                padding: 4px 12px;
+            .update-instructions {
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.7);
+                margin: 0;
+                line-height: 1.4;
+            }
+            
+            .update-url-box {
+                display: flex;
+                align-items: stretch;
+                background: rgba(0, 0, 0, 0.3);
+                border-radius: 4px;
+                overflow: hidden;
+                
+                .update-url-input {
+                    flex: 1;
+                    padding: 6px 10px;
+                    background: transparent;
+                    border: none;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-size: 11px;
+                    font-family: monospace;
+                    outline: none;
+                    min-width: 0;
+                    
+                    &:focus {
+                        background: rgba(255, 255, 255, 0.05);
+                    }
+                }
+                
+                .copy-btn {
+                    padding: 6px 10px;
+                    background: rgba(76, 175, 80, 0.3);
+                    border: none;
+                    border-left: 1px solid rgba(255, 255, 255, 0.1);
+                    cursor: pointer;
+                    transition: background 0.2s;
+                    
+                    &:hover {
+                        background: rgba(76, 175, 80, 0.5);
+                    }
+                    
+                    .copy-icon {
+                        font-size: 12px;
+                    }
+                }
+            }
+            
+            .plugins-panel-link {
+                display: block;
+                text-align: center;
+                padding: 8px 12px;
                 background: rgba(76, 175, 80, 0.3);
                 border: 1px solid rgba(76, 175, 80, 0.5);
                 border-radius: 4px;
                 color: #81c784;
                 text-decoration: none;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 500;
                 transition: all 0.2s;
                 
