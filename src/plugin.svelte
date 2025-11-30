@@ -29,6 +29,23 @@
 
     <!-- Model Selection -->
     <div class="settings-panel rounded-box mb-15">
+        <div class="model-info">
+            <div class="model-row">
+                <span class="model-label">Selected:</span>
+                <span class="model-value">{currentProduct}</span>
+            </div>
+            {#if result}
+                <div class="model-row">
+                    <span class="model-label">Used:</span>
+                    <span class="model-value" class:fallback={usedModel !== currentProduct}>
+                        {usedModel}
+                        {#if usedModel !== currentProduct}
+                            <span class="fallback-note">(fallback)</span>
+                        {/if}
+                    </span>
+                </div>
+            {/if}
+        </div>
         <div class="model-chips">
             {#each QUICK_MODELS as model}
                 <button 
@@ -190,9 +207,10 @@
     let error: string | null = null;
     let result: DensityResult | null = null;
     let locationName: string | null = null;
-    let displayModel = 'ecmwf';
     let currentProduct = 'ecmwf';
+    let usedModel = 'ecmwf';
     let lastUpdated: string = '';
+    let requestCounter = 0; // Prevents stale data from race conditions
     let marker: L.Marker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
@@ -210,9 +228,10 @@
         { id: 'icon', label: 'ICON' },
         { id: 'iconEu', label: 'ICON-EU' },
         { id: 'iconD2', label: 'ICON-D2' },
+        { id: 'ukv', label: 'UKV' },
         { id: 'czeAladin', label: 'ALADIN' },
+        { id: 'nems', label: 'NEMS' },
         { id: 'hrrr', label: 'HRRR' },
-        { id: 'namConus', label: 'NAM' },
     ];
     const STORAGE_KEY = 'airDensity_lastModel';
     
@@ -296,7 +315,7 @@
         'iconEu', 'iconD2', 'arome', 'aromeAntilles', 'aromeFrance', 'aromeReunion',
         'ukv', 'nam', 'namConus', 'namHawaii', 'namAlaska', 'hrrr', 'bomAccess',
         'czeAladin', 'canHrdps', 'canRdwps', 'jmaMsm', 'jmaGsm',
-        'iconWaves', 'gwam', 'ewam', 'efi'
+        'iconWaves', 'gwam', 'ewam', 'efi', 'nems'
     ];
     
     const FORECAST_MODELS = [...GLOBAL_MODELS, ...REGIONAL_MODELS];
@@ -308,14 +327,6 @@
     function getModelForFetch(): string {
         const product = store.get('product') || 'ecmwf';
         return isForecastModel(product) ? product : 'ecmwf';
-    }
-
-    function getDisplayModelName(): string {
-        const product = store.get('product') || 'ecmwf';
-        if (isForecastModel(product)) {
-            return product;
-        }
-        return `${product} → ecmwf`;
     }
 
     /**
@@ -373,6 +384,9 @@
     async function calculateDensity(latLon: LatLon, silent: boolean = false) {
         const { lat, lon } = latLon;
         
+        // Increment request counter to track this specific request
+        const thisRequest = ++requestCounter;
+        
         if (!silent) {
             setLoading(true);
         }
@@ -388,16 +402,18 @@
         
         // Get location name async
         reverseName.get(latLon).then(({ name: locName }) => {
-            locationName = locName;
+            if (thisRequest === requestCounter) {
+                locationName = locName;
+            }
         }).catch(() => {
-            locationName = null;
+            if (thisRequest === requestCounter) {
+                locationName = null;
+            }
         });
 
-        // Determine model and update display IMMEDIATELY
+        // Determine model
         const requestedModel = getModelForFetch();
-        displayModel = getDisplayModelName();
-        
-        let usedModel = requestedModel;
+        let actualUsedModel = requestedModel;
         let response: HttpPayload<WeatherDataPayload<DataHash>>;
 
         try {
@@ -407,12 +423,16 @@
                 // Fallback to ecmwf for regional model failures
                 if (requestedModel !== 'ecmwf' && !GLOBAL_MODELS.includes(requestedModel)) {
                     console.log(`[Air Density] ${requestedModel} failed, falling back to ecmwf`);
-                    usedModel = 'ecmwf';
-                    displayModel = `${requestedModel} → ecmwf`;
+                    actualUsedModel = 'ecmwf';
                     response = await getPointForecastData('ecmwf', latLon, name);
                 } else {
                     throw fetchErr;
                 }
+            }
+            
+            // Check if this request is still the latest
+            if (thisRequest !== requestCounter) {
+                return; // Abort - a newer request has been made
             }
             
             if (!response.data || !response.data.data) {
@@ -463,6 +483,12 @@
             
             const density = calculateAirDensity(tempCelsius, pressureHPa, humidity);
 
+            // Final check before updating state
+            if (thisRequest !== requestCounter) {
+                return; // Abort - a newer request has been made
+            }
+
+            usedModel = actualUsedModel;
             result = {
                 lat,
                 lon,
@@ -475,13 +501,18 @@
             lastUpdated = formatForecastTime(forecastTs);
 
         } catch (err) {
-            console.error('Error calculating air density:', err);
-            error = err instanceof Error ? err.message : 'Failed to fetch data';
-            if (!silent) {
-                result = null;
+            // Only update error state if this is still the latest request
+            if (thisRequest === requestCounter) {
+                console.error('Error calculating air density:', err);
+                error = err instanceof Error ? err.message : 'Failed to fetch data';
+                if (!silent) {
+                    result = null;
+                }
             }
         } finally {
-            setLoading(false);
+            if (thisRequest === requestCounter) {
+                setLoading(false);
+            }
         }
     }
 
@@ -574,7 +605,6 @@
     
     function onProductChange() {
         currentProduct = store.get('product') || 'ecmwf';
-        displayModel = getDisplayModelName();
         saveLastModel(currentProduct);
         
         if (currentLocation && !isLoading) {
@@ -600,8 +630,6 @@
     }
 
     export const onopen = (params?: LatLon) => {
-        displayModel = getDisplayModelName();
-        
         map.on('click', onMapClick);
         map.on('move', onMapMove);
         map.on('moveend', onMapMoveEnd);
@@ -622,7 +650,6 @@
         store.on('product', onProductChange);
         store.on('timestamp', onTimestampChange);
         currentProduct = store.get('product') || 'ecmwf';
-        displayModel = getDisplayModelName();
         
         // Restore last used model if available
         const lastModel = loadLastModel();
@@ -678,6 +705,41 @@
         .settings-panel {
             background: rgba(0, 0, 0, 0.2);
             padding: 10px 15px;
+            
+            .model-info {
+                margin-bottom: 10px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                
+                .model-row {
+                    display: flex;
+                    gap: 6px;
+                    font-size: 12px;
+                    
+                    &:not(:last-child) {
+                        margin-bottom: 4px;
+                    }
+                    
+                    .model-label {
+                        color: rgba(255, 255, 255, 0.5);
+                    }
+                    
+                    .model-value {
+                        color: rgba(255, 255, 255, 0.9);
+                        font-weight: 500;
+                        
+                        &.fallback {
+                            color: #ff9800;
+                        }
+                        
+                        .fallback-note {
+                            font-weight: 400;
+                            font-size: 10px;
+                            opacity: 0.7;
+                        }
+                    }
+                }
+            }
             
             .model-chips {
                 display: flex;
