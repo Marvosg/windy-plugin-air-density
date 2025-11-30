@@ -584,8 +584,10 @@
             forecastTimestamp = forecastTs;
             
             // If trackNow is on but forecast time changed significantly (> 1 hour), turn it off
-            // This means user intentionally selected a different time
-            if (trackNow && Math.abs(forecastTimestamp - previousForecastTimestamp) > 3600000) {
+            // BUT only if the new time is NOT close to "now" (user intentionally selected a different time)
+            // If new time IS close to now, user just clicked "current time" to sync back
+            const newTimeIsNow = Math.abs(forecastTimestamp - Date.now()) < 3600000;
+            if (trackNow && Math.abs(forecastTimestamp - previousForecastTimestamp) > 3600000 && !newTimeIsNow) {
                 trackNow = false;
                 saveTrackNow(false);
                 if (trackNowInterval) {
