@@ -214,8 +214,8 @@
     let forecastTimestamp: number = Date.now();
     let requestCounter = 0; // Prevents stale data from race conditions
     
-    // Check if forecast time is within 5 minutes of actual current time
-    $: isCurrentTime = Math.abs(forecastTimestamp - Date.now()) < 300000;
+    // Check if forecast time is within 1 hour of actual current time
+    $: isCurrentTime = Math.abs(forecastTimestamp - Date.now()) < 3600000;
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
     let trackingMode = true;
