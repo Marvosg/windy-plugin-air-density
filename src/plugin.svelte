@@ -115,7 +115,7 @@
                 </div>
             </div>
 
-            <div class="density-result">
+            <div class="density-result" style="--density-color: {getGradientColor(getDensityPosition(result.density))}">
                 <span class="density-label">Air Density</span>
                 <span class="density-value">{result.density.toFixed(4)}</span>
                 <span class="density-unit">kg/m³</span>
@@ -169,14 +169,6 @@
 
     <!-- Mode Toggle -->
     <div class="mode-toggle mb-15">
-        <button 
-            class="mode-btn mode-btn--full" 
-            class:active={trackingMode}
-            on:click={() => setTrackingMode(true)}
-        >
-            ⊕ Map Center
-        </button>
-        
         <div class="save-preset-row">
             {#each [1, 2, 3, 4] as presetNum}
                 <button 
@@ -190,18 +182,29 @@
             {/each}
         </div>
         
+        <button 
+            class="mode-btn mode-btn--full" 
+            class:active={trackingMode}
+            on:click={() => setTrackingMode(true)}
+        >
+            ⊕ Map Center
+        </button>
+        
         <div class="preset-buttons">
             {#each [1, 2, 3, 4] as presetNum}
+                {@const preset = presetLocations[presetNum]}
+                {@const densityColor = preset?.density ? getGradientColor(getDensityPosition(preset.density)) : null}
                 <button 
                     class="preset-btn" 
                     class:active={!trackingMode && activePreset === presetNum}
-                    class:has-location={presetLocations[presetNum] !== null}
+                    class:has-location={preset !== null}
                     on:click={() => selectPreset(presetNum)}
-                    title={presetLocations[presetNum]?.name || 'Empty preset'}
+                    title={preset?.name || 'Empty preset'}
+                    style={densityColor ? `--density-color: ${densityColor}` : ''}
                 >
-                    {#if presetLocations[presetNum]}
-                        <span class="preset-name">{presetLocations[presetNum].name || 'Location'}</span>
-                        <span class="preset-density">{presetLocations[presetNum].density?.toFixed(4) || '—'}</span>
+                    {#if preset}
+                        <span class="preset-name">{preset.name || 'Location'}</span>
+                        <span class="preset-density">{preset.density?.toFixed(4) || '—'}</span>
                     {:else}
                         <span class="preset-empty">{presetNum}</span>
                     {/if}
@@ -278,7 +281,6 @@
     $: isCurrentTime = Math.abs(forecastTimestamp - Date.now()) < 3600000;
     let marker: L.CircleMarker | null = null;
     let centerMarker: L.CircleMarker | null = null;
-    let crosshairMarker: L.Marker | null = null;
     let trackingMode = true;
     let trackNow = false;
     let updateAvailable = false;
@@ -336,6 +338,11 @@
     let presetLocations: { [key: number]: PresetLocation | null } = {
         1: null, 2: null, 3: null, 4: null
     };
+    
+    // Convert density value to position on the gradient (0-100)
+    function getDensityPosition(density: number): number {
+        return Math.max(0, Math.min(100, ((density - DENSITY_MIN) / (DENSITY_MAX - DENSITY_MIN)) * 100));
+    }
     
     // Interpolate color along the gradient based on position (0-100)
     function getGradientColor(position: number): string {
@@ -574,7 +581,7 @@
 
     /**
      * Update center marker (crosshair) for tracking mode
-     * Using L.circleMarker with a crosshair overlay
+     * Using L.circleMarker which is simpler and more reliable
      */
     function updateCenterMarker() {
         const center = map.getCenter();
@@ -582,7 +589,7 @@
         if (centerMarker) {
             centerMarker.setLatLng(center);
         } else {
-            // Create a simple circle marker
+            // Create a simple circle marker as crosshair
             centerMarker = L.circleMarker(center, {
                 radius: MARKER_RADIUS,
                 color: '#ff6600',
@@ -592,32 +599,12 @@
                 className: 'density-center-marker'
             }).addTo(map);
         }
-        
-        // Update crosshair overlay
-        if (crosshairMarker) {
-            crosshairMarker.setLatLng(center);
-        } else {
-            const crosshairIcon = L.divIcon({
-                className: 'density-crosshair-icon',
-                iconSize: [MARKER_RADIUS * 2 + 8, MARKER_RADIUS * 2 + 8],
-                iconAnchor: [MARKER_RADIUS + 4, MARKER_RADIUS + 4],
-                html: `<svg viewBox="0 0 32 32" width="32" height="32">
-                    <line x1="16" y1="4" x2="16" y2="28" stroke="#ff6600" stroke-width="2" stroke-linecap="round"/>
-                    <line x1="4" y1="16" x2="28" y2="16" stroke="#ff6600" stroke-width="2" stroke-linecap="round"/>
-                </svg>`
-            });
-            crosshairMarker = L.marker(center, { icon: crosshairIcon, interactive: false }).addTo(map);
-        }
     }
 
     function removeCenterMarker() {
         if (centerMarker) {
             centerMarker.remove();
             centerMarker = null;
-        }
-        if (crosshairMarker) {
-            crosshairMarker.remove();
-            crosshairMarker = null;
         }
     }
 
@@ -1127,6 +1114,7 @@
                     gap: 2px;
                     min-height: 50px;
                     justify-content: center;
+                    min-width: 0; // Allow shrinking for text ellipsis
                     
                     &:hover {
                         background: rgba(255, 255, 255, 0.1);
@@ -1134,15 +1122,17 @@
                     }
                     
                     &.has-location {
-                        color: rgba(255, 255, 255, 0.9);
-                        border-color: rgba(255, 255, 255, 0.3);
-                        background: rgba(0, 0, 0, 0.25);
+                        color: rgba(255, 255, 255, 0.95);
+                        border-color: var(--density-color, rgba(255, 255, 255, 0.3));
+                        background: linear-gradient(135deg, 
+                            color-mix(in srgb, var(--density-color) 25%, transparent),
+                            color-mix(in srgb, var(--density-color) 15%, transparent)
+                        );
                     }
                     
                     &.active {
-                        background: rgba(255, 102, 0, 0.3);
                         border-color: #ff6600;
-                        color: white;
+                        box-shadow: 0 0 0 1px #ff6600;
                     }
                     
                     .preset-name {
@@ -1151,13 +1141,14 @@
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
-                        max-width: 100%;
+                        width: 100%;
+                        text-align: center;
                     }
                     
                     .preset-density {
                         font-size: 13px;
                         font-weight: 700;
-                        color: #4CAF50;
+                        color: white;
                     }
                     
                     .preset-empty {
@@ -1379,7 +1370,10 @@
             .density-result {
                 text-align: center;
                 padding: 12px;
-                background: linear-gradient(135deg, rgba(76, 175, 80, 0.2), rgba(33, 150, 243, 0.2));
+                background: linear-gradient(135deg, 
+                    color-mix(in srgb, var(--density-color, #4CAF50) 25%, transparent),
+                    color-mix(in srgb, var(--density-color, #4CAF50) 15%, transparent)
+                );
                 border-radius: 8px;
                 margin-bottom: 8px;
                 
@@ -1394,7 +1388,7 @@
                     display: block;
                     font-size: 28px;
                     font-weight: 700;
-                    color: #4CAF50;
+                    color: white;
                 }
                 
                 .density-unit {
@@ -1471,7 +1465,7 @@
                     }
                     
                     &.standard::before {
-                        background: rgba(255, 255, 255, 0.8);
+                        background: white;
                     }
                     
                     &.current::before {
@@ -1572,10 +1566,5 @@
 
     @keyframes spin {
         to { transform: rotate(360deg); }
-    }
-    
-    :global(.density-crosshair-icon) {
-        background: transparent !important;
-        border: none !important;
     }
 </style>
