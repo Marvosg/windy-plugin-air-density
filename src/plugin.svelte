@@ -556,7 +556,7 @@
         }
     }
     
-    function selectPreset(num: number) {
+    function selectPreset(num: number, zoom?: number) {
         const preset = presetLocations[num];
         if (!preset) {
             // No saved location - do nothing
@@ -570,7 +570,7 @@
         saveActivePreset(num);
         removeCenterMarker();
         
-        map.setView([preset.lat, preset.lon], map.getZoom());
+        map.setView([preset.lat, preset.lon], zoom ?? map.getZoom());
         calculateDensity({ lat: preset.lat, lon: preset.lon });
     }
     
@@ -1221,7 +1221,7 @@
         // Restore previously selected preset if any
         const storedActive = loadActivePreset();
         if (storedActive && presetLocations[storedActive]) {
-            selectPreset(storedActive);
+            selectPreset(storedActive, 10);
         }
         
         // Restore track now setting
